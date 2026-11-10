@@ -10,6 +10,14 @@ import {
   Clock3,
   LockKeyhole,
   MapPin,
+  Play,
+  CircleCheck,
+  CircleX,
+  FileText,
+  Send,
+  Smile,
+  MessageSquare,
+  Bot,
   MessageCircle,
   RefreshCw,
   Search,
@@ -27,14 +35,22 @@ import {
 } from "../services/agentTrackingService";
 import "./AgentTrackingPage.css";
 
-type FilterKey = "all" | "active" | "waiting" | "complete";
+type FilterKey = "all" | "active" | "complete" | "failed";
 
 const FILTERS: Array<{ key: FilterKey; label: string }> = [
-  { key: "all", label: "All workflows" },
-  { key: "active", label: "In progress" },
-  { key: "waiting", label: "Awaiting acceptance" },
-  { key: "complete", label: "Completed or cancelled" },
+  { key: "all", label: "All Jobs" },
+  { key: "active", label: "Running" },
+  { key: "complete", label: "Completed" },
+  { key: "failed", label: "Failed" },
 ];
+
+function isFailed(job: AgentTrackedJob): boolean { return ["FAILED", "CANCELLED", "CANCELED"].includes(job.status.toUpperCase()); }
+function progressFor(job: AgentTrackedJob): number {
+  if (isTerminal(job) && !isFailed(job)) return 100;
+  const done = job.stages.filter((stage) => stage.state === "complete").length;
+  const active = job.stages.some((stage) => stage.state === "active") ? 1 : 0;
+  return Math.min(99, Math.round(((done + active * 0.45) / job.stages.length) * 100));
+}
 
 function formatTimestamp(value: string | null): string {
   if (!value) return "Not recorded";
@@ -152,12 +168,29 @@ function JobProgressDetail({
       ? current.filter((value) => value !== index)
       : [...current, index]);
   };
+  const toggleDetailedLog = () => {
+    onToggleDetail();
+    setExpandedEvents(detailed ? [] : job.events.map((_, index) => index));
+  };
+  const agentCards = [
+    { name: "Intake Agent", icon: <FileText size={21}/>, active: true, running: false },
+    { name: "Planning Agent", icon: <CalendarDays size={21}/>, active: Boolean(job.assigned_at), running: false },
+    { name: "Dispatcher Agent", icon: <Send size={21}/>, active: Boolean(job.assigned_at), running: job.current_agent === "Dispatcher" },
+    { name: "Monitoring Agent", icon: <Activity size={21}/>, active: job.accepted, running: ["EN_ROUTE", "ON_SITE", "IN_PROGRESS"].includes(job.status.toUpperCase()) },
+    { name: "Communication Agent", icon: <MessageSquare size={21}/>, active: job.accepted, running: false },
+    { name: "Sentiment Agent", icon: <Smile size={21}/>, active: job.events.some((event) => event.kind === "sentiment"), running: false },
+    { name: "Closure Agent", icon: <CircleCheck size={21}/>, active: isTerminal(job), running: job.status.toUpperCase() === "COMPLETED" },
+  ];
 
   return (
-      <section className="agent-track-detail" aria-labelledby="agent-track-detail-title">
+      <section className="agent-track-detail-page" aria-labelledby="agent-track-detail-title">
+        <header className="agent-track-detail-topbar"><div className="agent-track-topbar-mark"><Workflow size={29}/></div><div><h1 id="agent-track-detail-title">Agent Tracking</h1><p>Monitor AI agents, their executions, and outcomes in real time.</p></div><span className="agent-track-date"><CalendarDays size={17}/>Today, {new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}<ChevronDown size={15}/></span></header>
+        <div className="agent-track-agent-strip" aria-label="Agent status overview">{agentCards.map((agent) => <div key={agent.name} className={`agent-track-agent-card ${agent.running ? "is-running" : ""}`}><span className="agent-track-agent-card-icon">{agent.icon}</span><span className="agent-track-agent-card-copy"><strong>{agent.name}</strong><small className={agent.active ? "is-active" : "is-idle"}><i/>{agent.running ? "Running" : agent.active ? "Active" : "Idle"}</small></span></div>)}</div>
+        <div className="agent-track-detail-banner"><span className="agent-track-banner-chip"><Bot size={15}/> AI Agents</span><strong>Agent Tracking</strong><i/><p>Track and monitor all FieldOps AI agents in real time —<br/> from planning to communication and resolution.</p><span className="agent-track-banner-graphic"><img src="/ai-agent-chip.png" alt="AI processor with connected workflow icons" /></span></div>
+        <div className="agent-track-detail">
         <header className="agent-track-detail-header">
           <button className="agent-track-back" onClick={onClose} aria-label="Back to job workflows"><ArrowLeft size={19} /></button>
-          <div><h1 id="agent-track-detail-title">Job Progress</h1><p>See how the agents worked together on this job</p></div>
+          <div><h2>Job Progress</h2><p>See how the agents worked together on this job</p></div>
           <span className="agent-track-live"><i /> Live</span>
         </header>
 
@@ -172,15 +205,15 @@ function JobProgressDetail({
         {job.location ? <div className="agent-track-detail-location"><MapPin size={16} />{job.location}</div> : null}
 
         <div className="agent-track-progress-rail" role="list" aria-label="Job workflow stages">
-          {job.stages.map((stage) => <div key={stage.key} className={`agent-track-progress-step state-${stage.state}`} role="listitem"><span className="agent-track-progress-icon">{stageIcon(stage)}</span><strong>{stage.label}</strong></div>)}
+          {job.stages.map((stage) => <div key={stage.key} className={`agent-track-progress-step state-${stage.state}`} role="listitem"><span className="agent-track-progress-icon">{stageIcon(stage)}</span><strong>{({intake:"Request Received",planning:"Plan Job",dispatch:"Assign Technician",communication:"Communicate",technician_work:"Track Work",sentiment:"Check Customer Mood",closure:"Close Job"} as Record<string,string>)[stage.key] || stage.label}</strong></div>)}
         </div>
 
         <section className="agent-track-event-panel">
           <div className="agent-track-event-panel-head">
             <h2>What Happened in This Job</h2>
             <div className="agent-track-log-toggle" role="group" aria-label="Event log detail level">
-              <button className={!detailed ? "is-active" : ""} onClick={() => detailed && onToggleDetail()}>Simple View</button>
-              <button className={detailed ? "is-active" : ""} onClick={() => !detailed && onToggleDetail()}>Detailed Log</button>
+              <button className={!detailed ? "is-active" : ""} onClick={() => detailed && toggleDetailedLog()}>Simple View</button>
+              <button className={detailed ? "is-active" : ""} onClick={() => !detailed && toggleDetailedLog()}>Detailed Log</button>
             </div>
           </div>
           {job.events.length ? <ol className="agent-track-event-list">
@@ -197,21 +230,18 @@ function JobProgressDetail({
                 </button>
                 {expandedEvents.includes(index) ? (
                   <div className="agent-track-event-expanded">
-                    {event.kind === "communication" ? (
-                      <>
-                        <div className="agent-track-message-card"><MessageCircle size={18} /><strong>{event.sender_role ? `${event.sender_role.toLowerCase() === "customer" ? "Customer" : event.sender_role.toLowerCase() === "technician" ? "Technician" : event.sender_role} Message` : "Message"}</strong><p>{event.detail}</p></div>
-                        <span className="agent-track-event-arrow">→</span>
-                        <div className="agent-track-message-card mood-card"><Activity size={18} /><strong>Customer Mood</strong><p>{(event.message_id ? job.events.find((item) => item.kind === "sentiment" && item.source_message_id === event.message_id) : undefined)?.detail || "No sentiment analysis has been recorded for this message."}</p></div>
-                        <span className="agent-track-event-arrow">→</span>
-                        <div className="agent-track-message-card response-card"><MessageCircle size={18} /><strong>Agent Response</strong><p>{job.events.find((item) => item.kind === "communication" && item !== event && item.sender_role && ["assistant", "agent", "communication_agent"].includes(item.sender_role.toLowerCase()))?.detail || "No agent response message has been recorded for this event."}</p></div>
-                      </>
-                    ) : <div className="agent-track-event-detail"><strong>{event.agent} details</strong><p>{event.detail}</p></div>}
+                    <div className="agent-track-event-detail"><strong>{event.agent} — {detailed ? "Recorded execution details" : "Event details"}</strong><p>{event.detail}</p></div>
+                    {detailed ? <div className="agent-track-data-grid">
+                      <div className="agent-track-data-card"><h3>Recorded input</h3>{event.input && Object.keys(event.input).length ? <dl>{Object.entries(event.input).map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd>{typeof value === "string" ? value : value == null ? "Not recorded" : JSON.stringify(value, null, 2)}</dd></div>)}</dl> : <p>No input snapshot was persisted for this event.</p>}</div>
+                      <div className="agent-track-data-card"><h3>Recorded output / outcome</h3>{event.output && Object.keys(event.output).length ? <dl>{Object.entries(event.output).map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd>{typeof value === "string" ? value : value == null ? "Not recorded" : JSON.stringify(value, null, 2)}</dd></div>)}</dl> : <p>No output snapshot was persisted for this event.</p>}</div>
+                    </div> : null}
                   </div>
                 ) : null}
               </li>
             ))}
           </ol> : <div className="agent-track-empty agent-track-no-events"><Workflow size={25} /><strong>No workflow events recorded yet</strong><span>Events will appear here as this job moves through its stages.</span></div>}
         </section>
+        </div>
       </section>
   );
 }
@@ -294,14 +324,16 @@ export default function AgentTrackingPage() {
     return (data?.jobs ?? []).filter((job) => {
       const matchesFilter =
         filter === "all" ||
-        (filter === "active" && !isTerminal(job)) ||
-        (filter === "waiting" && job.current_agent === "Dispatcher") ||
-        (filter === "complete" && isTerminal(job));
+        (filter === "active" && !isTerminal(job) && !isFailed(job)) ||
+        (filter === "complete" && isTerminal(job) && !isFailed(job)) ||
+        (filter === "failed" && isFailed(job));
       const matchesSearch = !query || [
         String(job.job_number),
         job.service_type,
         job.status,
         job.technician_name ?? "",
+        job.customer_name ?? "",
+        job.location ?? "",
         job.current_agent,
       ].some((value) => value.toLowerCase().includes(query));
       return matchesFilter && matchesSearch;
@@ -321,59 +353,24 @@ export default function AgentTrackingPage() {
       <header className="agent-track-hero">
         <div className="agent-track-hero-mark"><Workflow size={24} /></div>
         <div>
-          <div className="agent-track-kicker">OPERATIONS CONTROL</div>
           <h1>Agent Tracking</h1>
-          <p>Follow each job from intake through dispatch, service, and closure.</p>
+          <p>Track AI agent execution for all jobs and view real-time progress.</p>
         </div>
-        <button className="agent-track-refresh" onClick={() => void load(true)} disabled={refreshing}>
-          <RefreshCw size={16} className={refreshing ? "is-spinning" : ""} />
-          <span>{refreshing ? "Updating" : "Refresh"}</span>
-        </button>
+        <div className="agent-track-date"><CalendarDays size={17}/>Today, {new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</div>
+        <button className="agent-track-refresh" onClick={() => void load(true)} disabled={refreshing} aria-label="Refresh tracking"><RefreshCw size={17} className={refreshing ? "is-spinning" : ""} /></button>
       </header>
 
-      <section className="agent-track-summary" aria-label="Workflow totals">
-        <div className="agent-track-summary-card">
-          <span>Tracked jobs</span><strong>{data?.total ?? "—"}</strong>
-          <small>Latest tracked jobs</small>
-        </div>
-        <div className="agent-track-summary-card summary-active">
-          <span>In progress</span><strong>{data?.active ?? "—"}</strong>
-          <small>Not yet completed or cancelled</small>
-        </div>
-        <div className="agent-track-summary-card summary-waiting">
-          <span>Awaiting technician</span><strong>{data?.waiting_acceptance ?? "—"}</strong>
-          <small>Dispatcher is waiting for acceptance</small>
-        </div>
-        <div className="agent-track-summary-card summary-live">
-          <span>Auto refresh</span><strong>20s</strong>
-          <small>Last sync {formatTimestamp(data?.generated_at ?? null)}</small>
-        </div>
-      </section>
-
       <section className="agent-track-board">
-        <div className="agent-track-board-head">
-          <div>
-            <h2>Job workflows</h2>
-            <p>Open any job to see its progress timeline and recorded agent activity. Communication and Sentiment appear after technician acceptance.</p>
-          </div>
+        <div className="agent-track-toolbar">
+        <div className="agent-track-filters" role="tablist" aria-label="Filter jobs">
+          {FILTERS.map((option) => <button key={option.key} role="tab" aria-selected={filter === option.key} className={filter === option.key ? "is-selected" : ""} onClick={() => setFilter(option.key)}>
+            {option.key === "all" ? <Workflow size={19}/> : option.key === "active" ? <Play size={19}/> : option.key === "complete" ? <CircleCheck size={19}/> : <CircleX size={19}/>}{option.label}{option.key === "all" ? ` (${data?.total ?? 0})` : option.key === "active" ? ` (${(data?.jobs ?? []).filter((job) => !isTerminal(job) && !isFailed(job)).length})` : option.key === "complete" ? ` (${(data?.jobs ?? []).filter((job) => isTerminal(job) && !isFailed(job)).length})` : ` (${(data?.jobs ?? []).filter(isFailed).length})`}
+          </button>)}
+        </div>
           <label className="agent-track-search">
             <Search size={17} />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search job, service, technician" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by Job ID, customer, or location..." />
           </label>
-        </div>
-
-        <div className="agent-track-filters" role="tablist" aria-label="Filter workflows">
-          {FILTERS.map((option) => (
-            <button
-              key={option.key}
-              role="tab"
-              aria-selected={filter === option.key}
-              className={filter === option.key ? "is-selected" : ""}
-              onClick={() => setFilter(option.key)}
-            >
-              {option.label}
-            </button>
-          ))}
         </div>
 
         {loading ? (
@@ -381,9 +378,17 @@ export default function AgentTrackingPage() {
         ) : error ? (
           <div className="agent-track-message is-error"><AlertCircle size={20} />{error}<button onClick={() => void load()}>Try again</button></div>
         ) : filteredJobs.length ? (
-          <div className="agent-track-list">
-            {filteredJobs.map((job) => <JobWorkflowCard key={job.job_id} job={job} onOpen={() => void openJob(job)} />)}
-          </div>
+          <div className="agent-track-table-wrap"><table className="agent-track-table"><thead><tr><th>Job ID</th><th>Customer</th><th>Job Type</th><th>Agent Pipeline (7 Agents)</th><th>Progress</th><th>Status</th><th>Last Update</th><th>Action</th></tr></thead><tbody>
+            {filteredJobs.map((job) => { const progress = progressFor(job); return <tr key={job.job_id}>
+              <td><strong className="agent-track-table-id">#{job.job_number}</strong></td>
+              <td><div className="agent-track-customer"><span className="agent-track-customer-avatar"><UserRound size={17}/></span><span><strong>{job.customer_name || "Customer"}</strong><small>{job.location || "Location not recorded"}</small></span></div></td>
+              <td><span className="agent-track-service"><Wrench size={14}/>{job.service_type || "Service"}</span></td>
+              <td><div className="agent-track-pipeline">{job.stages.slice(0, 7).map((stage, index) => <div className={`agent-track-pipeline-step state-${stage.state}`} key={stage.key}><span>{stageIcon(stage)}</span><small>{({intake:"Intake",planning:"Planning",dispatch:"Dispatcher",communication:"Comm.",technician_work:"Monitoring",sentiment:"Sentiment",closure:"Closure"} as Record<string,string>)[stage.key] || stage.label}</small>{index < Math.min(job.stages.length, 7) - 1 ? <i/> : null}</div>)}</div></td>
+              <td><div className="agent-track-progress"><strong>{progress}%</strong><span><i style={{width: `${progress}%`}}/></span></div></td>
+              <td><span className={`agent-track-table-status ${isFailed(job) ? "failed" : isTerminal(job) ? "completed" : "running"}`}>{isFailed(job) ? "Failed" : isTerminal(job) ? "Completed" : "Running"}</span></td>
+              <td className="agent-track-update">{formatTimestamp(job.updated_at)}</td><td><button className="agent-track-view" onClick={() => void openJob(job)}>View Tracking <span>→</span></button></td>
+            </tr>; })}
+          </tbody></table></div>
         ) : (
           <div className="agent-track-empty">
             <Workflow size={28} />

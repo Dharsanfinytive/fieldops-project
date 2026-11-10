@@ -22,6 +22,8 @@ export interface AgentTrackedJob {
   status: string;
   priority: string;
   technician_name: string | null;
+  customer_name: string | null;
+  location: string | null;
   created_at: string | null;
   updated_at: string | null;
   assigned_at: string | null;
@@ -50,6 +52,8 @@ export interface AgentTrackingEvent {
   source_message_id?: string | null;
   emotion?: string | null;
   confidence?: number | null;
+  input?: Record<string, unknown> | null;
+  output?: Record<string, unknown> | null;
 }
 
 export interface AgentTrackingJobDetail extends AgentTrackedJob {
