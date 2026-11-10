@@ -145,6 +145,8 @@ def _track_job(job: Job) -> dict:
         "status": status,
         "priority": job.priority,
         "technician_name": getattr(technician, "technician_name", None),
+        "customer_name": job.customer_name,
+        "location": job.location,
         "created_at": _utc_iso(job.created_at),
         "updated_at": _utc_iso(job.updated_at),
         "assigned_at": _utc_iso(job.assigned_at),
@@ -185,12 +187,30 @@ def get_agent_tracking_job(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
 
     tracked = _track_job(job)
+    request_input = {
+        "customer": job.customer_name,
+        "service_type": job.service_type,
+        "request": job.issue_description,
+        "location": job.site_address or job.location,
+        "priority": job.priority,
+        "required_skill": job.required_skill,
+        "preferred_visit": str(job.preferred_service_date) if job.preferred_service_date else None,
+    }
+    job_output = {
+        "job_id": job.id,
+        "job_number": tracked["job_number"],
+        "status": tracked["status"],
+        "technician": tracked["technician_name"],
+        "assigned_at": tracked["assigned_at"],
+        "attempt_count": getattr(job, "attempt_count", None),
+        "sla_deadline": _utc_iso(getattr(job, "sla_deadline", None)),
+    }
     events = [
-        _event(job.created_at, "Intake Agent", "Request received", f"Service request received for {job.service_type or 'service'}.", "intake"),
-        _event(job.assigned_at or job.created_at, "Planning Agent", "Job prepared for dispatch", "Request details were prepared for technician assignment.", "planning"),
+        _event(job.created_at, "Intake Agent", "Request received", f"Service request received for {job.service_type or 'service'}.", "intake", input=request_input, output={"persisted_job": job_output, "note": "The application does not persist the Intake Agent's raw model response; this is the resulting saved job record."}),
+        _event(job.assigned_at or job.created_at, "Planning Agent", "Job prepared for dispatch", "Request details were prepared for technician assignment.", "planning", input=request_input, output={"technician": tracked["technician_name"], "assignment_status": tracked["status"], "attempt_count": getattr(job, "attempt_count", None), "note": "Candidate rankings and the raw Planning Agent response are not available in the persisted job record."}),
     ]
     if job.assigned_at:
-        events.append(_event(job.assigned_at, "Dispatcher Agent", "Technician assigned", f"{tracked['technician_name'] or 'A technician'} was assigned to the job.", "dispatch"))
+        events.append(_event(job.assigned_at, "Dispatcher Agent", "Technician assigned", f"{tracked['technician_name'] or 'A technician'} was assigned to the job.", "dispatch", input={"job_id": job.id, "service_type": job.service_type, "required_skill": job.required_skill, "location": job.site_address or job.location}, output={"technician": tracked["technician_name"], "assigned_at": tracked["assigned_at"], "attempt_count": getattr(job, "attempt_count", None), "note": "The selected technician is persisted; candidate scores and the raw dispatcher response are not retained."}))
     if job.en_route_at:
         events.append(_event(job.en_route_at, "Technician", "Travel started", "Technician started travelling to the service location.", "work"))
     if job.on_site_at:
@@ -200,21 +220,21 @@ def get_agent_tracking_job(
     if job.completed_at:
         events.append(_event(job.completed_at, "Technician", "Service completed", "Technician marked the service as complete.", "work"))
     if job.closed_at:
-        events.append(_event(job.closed_at, "Closure Agent", "Job closed", job.closure_reason or "The job was closed.", "closure"))
+        events.append(_event(job.closed_at, "Closure Agent", "Job closed", job.closure_reason or "The job was closed.", "closure", input={"status": tracked["status"], "work_report": getattr(job, "work_report", None), "completed_at": _utc_iso(job.completed_at)}, output={"status": tracked["status"], "closure_reason": job.closure_reason, "closed_at": _utc_iso(job.closed_at)}))
     if job.cancelled_at:
-        events.append(_event(job.cancelled_at, "Dispatcher Agent", "Job cancelled", job.cancellation_reason or "The job was cancelled.", "dispatch"))
+        events.append(_event(job.cancelled_at, "Dispatcher Agent", "Job cancelled", job.cancellation_reason or "The job was cancelled.", "dispatch", input={"job_id": job.id, "attempt_count": getattr(job, "attempt_count", None)}, output={"status": tracked["status"], "cancellation_reason": job.cancellation_reason, "cancelled_at": _utc_iso(job.cancelled_at)}))
 
     audit_query = db.query(AuditEvent).filter(AuditEvent.job_id == str(job.id))
     if current_user.role == UserRole.SUPER_ADMIN:
         audit_query = audit_query.filter(AuditEvent.tenant_id == current_user.tenant_id)
     for record in audit_query.order_by(AuditEvent.timestamp.asc(), AuditEvent.id.asc()).all():
-        events.append(_event(record.timestamp or record.created_at, "Workflow Log", record.event_type.replace("_", " ").title(), record.reason or str(record.details or "Job status updated."), "audit"))
+        events.append(_event(record.timestamp or record.created_at, "Workflow Log", record.event_type.replace("_", " ").title(), record.reason or str(record.details or "Job status updated."), "audit", input={"old_status": record.old_status, "actor_id": record.actor_id}, output={"new_status": record.new_status, "reason": record.reason, "details": record.details, "correlation_id": record.correlation_id}))
 
     message_query = db.query(JobMessage).filter(JobMessage.job_id == job.id)
     if current_user.role == UserRole.SUPER_ADMIN:
         message_query = message_query.filter(JobMessage.tenant_id == current_user.tenant_id)
     for message in message_query.order_by(JobMessage.created_at.asc()).all():
-        events.append(_event(message.created_at, "Communication Agent", f"{message.sender_role.title()} message", message.body, "communication", message_id=message.id, sender_role=message.sender_role))
+        events.append(_event(message.created_at, "Communication Agent", f"{message.sender_role.title()} message", message.body, "communication", message_id=message.id, sender_role=message.sender_role, input={"job_id": job.id, "sender_role": message.sender_role}, output={"message": message.body, "created_at": _utc_iso(message.created_at)}))
 
     sentiment_query = db.query(SentimentThreadMessage).filter(SentimentThreadMessage.job_id == job.id)
     if current_user.role == UserRole.SUPER_ADMIN:
@@ -222,7 +242,7 @@ def get_agent_tracking_job(
     for record in sentiment_query.order_by(SentimentThreadMessage.created_at.asc()).all():
         mood = record.sentiment or "Analyzed"
         detail = record.summary or record.message
-        events.append(_event(record.created_at, "Sentiment Agent", f"Customer mood: {mood}", detail, "sentiment", source_message_id=record.source_message_id, emotion=record.emotion, confidence=record.confidence))
+        events.append(_event(record.created_at, "Sentiment Agent", f"Customer mood: {mood}", detail, "sentiment", source_message_id=record.source_message_id, emotion=record.emotion, confidence=record.confidence, input={"message": record.message, "source_message_id": record.source_message_id}, output={"sentiment": record.sentiment, "emotion": record.emotion, "confidence": record.confidence, "summary": record.summary}))
 
     events.sort(key=lambda item: item["timestamp"] or "")
     return {
