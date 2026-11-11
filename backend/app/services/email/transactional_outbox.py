@@ -9,7 +9,7 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from app.models import CustomerProfile, Job
+from app.models import CommunicationChannelConfiguration, CustomerProfile, Job
 from app.models.job_closure import JobClosure
 from app.models.customer_signature import CustomerSignature
 from app.models.transactional_email_outbox import TransactionalEmailOutbox
@@ -173,6 +173,29 @@ def process_due_emails(db, *, email_service: SMTPEmailService | None = None,
                 )
                 .first()
             )
+            organization_email_setting = None
+            if job:
+                organization_email_setting = (
+                    db.query(CommunicationChannelConfiguration)
+                    .filter(
+                        CommunicationChannelConfiguration.tenant_id == str(job.tenant_id),
+                        func.upper(CommunicationChannelConfiguration.channel) == "EMAIL",
+                    )
+                    .first()
+                )
+            if organization_email_setting and organization_email_setting.state != "ENABLED":
+                db.rollback()
+                row = db.get(TransactionalEmailOutbox, row_id)
+                row.status = "suppressed"
+                row.last_error = "organization_email_channel_disabled"
+                row.updated_at = now
+                db.commit()
+                logger.info(
+                    "customer_email_suppressed",
+                    extra={"outbox_id": row_id, "job_id": job_id,
+                           "tenant_id": tenant_id, "reason": row.last_error},
+                )
+                continue
             customer, reason = _resolve_customer(db, row, job) if job else (None, "job_or_tenant_not_found")
             if not customer:
                 if reason == "customer_email_preference_disabled":

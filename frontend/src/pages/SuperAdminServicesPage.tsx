@@ -45,7 +45,11 @@ SERVICE_CATALOGUE_TAXONOMY.forEach((st) => {
   });
 });
 
-export default function SuperAdminServicesPage() {
+interface SuperAdminServicesPageProps {
+  readOnly?: boolean;
+}
+
+export default function SuperAdminServicesPage({ readOnly = false }: SuperAdminServicesPageProps) {
   const { addToast } = useToast();
   const user = useAuthStore((state) => state.user);
   const [services, setServices] = useState<ServiceCatalogItem[]>([]);
@@ -288,6 +292,7 @@ export default function SuperAdminServicesPage() {
 
   // Toggle Active/Inactive status
   const handleToggleActive = async (id: number) => {
+    if (readOnly) return;
     try {
       const updated = await toggleServiceActive(id);
       setServices((prev) => prev.map((s) => (s.id === id ? updated : s)));
@@ -304,6 +309,7 @@ export default function SuperAdminServicesPage() {
 
   // Delete service
   const handleDeleteService = async (id: number, issueName: string) => {
+    if (readOnly) return;
     if (!window.confirm(`Are you sure you want to delete "${issueName}"?`)) return;
     try {
       await deleteAdminService(id);
@@ -325,6 +331,7 @@ export default function SuperAdminServicesPage() {
 
   // Publish Service Batch (SAFE: never redirects to blank page, stays cleanly on grouped services page)
   const handlePublishServices = async (e?: React.MouseEvent) => {
+    if (readOnly) return;
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -428,7 +435,7 @@ export default function SuperAdminServicesPage() {
           )}
         </div>
 
-        <button
+        {!readOnly && <button
           onClick={handleOpenCreateModal}
           style={{
             background: "#069660",
@@ -450,7 +457,7 @@ export default function SuperAdminServicesPage() {
         >
           <PlusCircle size={16} strokeWidth={2.5} />
           <span>Create Service</span>
-        </button>
+        </button>}
       </div>
 
       {/* 2. 4 Metric Cards (Matching screenshot) */}
@@ -712,9 +719,9 @@ export default function SuperAdminServicesPage() {
             No Services Configured
           </h3>
           <p style={{ fontSize: "13px", color: "#64748B", margin: "0 0 16px" }}>
-            Create services for your organization so customers can book them.
+            {readOnly ? "No services have been published for your organization yet." : "Create services for your organization so customers can book them."}
           </p>
-          <button
+          {!readOnly && <button
             onClick={handleOpenCreateModal}
             style={{
               background: "#069660",
@@ -732,7 +739,7 @@ export default function SuperAdminServicesPage() {
           >
             <PlusCircle size={15} />
             <span>Create First Service</span>
-          </button>
+          </button>}
         </div>
       ) : (
         /* EXACT HIERARCHICAL GROUPED VIEW */
@@ -871,7 +878,7 @@ export default function SuperAdminServicesPage() {
                               {item.is_active ? "Active" : "Inactive"}
                             </span>
 
-                            <button
+                            {!readOnly && <button
                               type="button"
                               onClick={() => handleToggleActive(item.id)}
                               style={{
@@ -900,9 +907,9 @@ export default function SuperAdminServicesPage() {
                                   boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
                                 }}
                               />
-                            </button>
+                            </button>}
 
-                            <button
+                            {!readOnly && <button
                               type="button"
                               onClick={() => handleDeleteService(item.id, item.issue)}
                               style={{
@@ -921,7 +928,7 @@ export default function SuperAdminServicesPage() {
                               title="Delete Issue"
                             >
                               <Trash2 size={16} />
-                            </button>
+                            </button>}
                           </div>
                         </div>
                       ))}
@@ -935,7 +942,7 @@ export default function SuperAdminServicesPage() {
       )}
 
       {/* 5. LARGE SPACIOUS CREATE SERVICE POP-UP MODAL (Category & Sub-Issues Master-Detail) */}
-      {isModalOpen && (
+      {!readOnly && isModalOpen && (
         <div
           style={{
             position: "fixed",

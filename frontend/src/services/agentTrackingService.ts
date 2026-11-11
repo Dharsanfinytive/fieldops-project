@@ -54,6 +54,28 @@ export interface AgentTrackingEvent {
   confidence?: number | null;
   input?: Record<string, unknown> | null;
   output?: Record<string, unknown> | null;
+  channel?: string | null;
+  delivery_status?: string | null;
+  recipient_role?: string | null;
+  recipient_id?: string | null;
+  recipient_name?: string | null;
+  event_type?: string | null;
+  event_version?: number | null;
+  attempts?: number | null;
+  error?: string | null;
+  provider_message_id?: string | null;
+  smtp_status?: number | null;
+  actor?: string | null;
+  urgency?: string | null;
+  severity?: string | null;
+  issue_categories?: string[];
+  requires_human?: boolean;
+  analysis_source?: string | null;
+  language?: string | null;
+  escalation_id?: number | null;
+  escalation_status?: string | null;
+  escalation_owner_id?: string | null;
+  escalation_trigger?: string | null;
 }
 
 export interface AgentTrackingJobDetail extends AgentTrackedJob {

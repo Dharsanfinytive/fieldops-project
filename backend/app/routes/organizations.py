@@ -173,6 +173,7 @@ class OrgAdminCreateRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
     first_name: str = Field(..., min_length=1, max_length=100)
     last_name: str = Field(..., min_length=1, max_length=100)
+    phone_number: str = Field(..., min_length=10, max_length=10, pattern=r"^\d{10}$")
     role: str = Field(default="dispatcher")
 
 
@@ -641,6 +642,11 @@ current_user: AuthenticatedUser = Depends(
             User.tenant_id == org.id,
             User.deleted_at.is_(None),
         ).scalar()
+        dispatcher_count = db.query(func.count(User.id)).filter(
+            User.tenant_id == org.id,
+            User.role == UserRole.DISPATCHER.value,
+            User.deleted_at.is_(None),
+        ).scalar()
 
         results.append({
             "id": org.id,
@@ -652,6 +658,7 @@ current_user: AuthenticatedUser = Depends(
             "max_technicians": org.max_technicians,
             "contact_email": org.contact_email,
             "user_count": user_count,
+            "dispatcher_count": dispatcher_count,
             "created_at": org.created_at.isoformat() if org.created_at else None,
         })
 
@@ -988,11 +995,16 @@ async def create_org_admin(
             detail=f"{current_user.role.value} cannot create {role.value} users.",
         )
 
-    org = db.query(Organization).filter(
+    org_query = db.query(Organization).filter(
         Organization.id == org_id,
         Organization.status == "ACTIVE",
         Organization.deleted_at.is_(None),
-    ).first()
+    )
+    if role == UserRole.DISPATCHER:
+        # Serialize Dispatcher provisioning for the same organization so two
+        # concurrent requests cannot both pass the one-Dispatcher check.
+        org_query = org_query.with_for_update()
+    org = org_query.first()
 
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found or inactive")
@@ -1050,6 +1062,7 @@ async def create_org_admin(
         password_hash=hash_password(payload.password),
         first_name=payload.first_name.strip(),
         last_name=payload.last_name.strip(),
+        phone_number=payload.phone_number,
         role=role.value,
         tenant_id=org_id,
         is_active=True,
@@ -1076,6 +1089,7 @@ async def create_org_admin(
         "email": admin.email,
         "first_name": admin.first_name,
         "last_name": admin.last_name,
+        "phone_number": admin.phone_number,
         "role": admin.role,
         "tenant_id": org_id,
     }

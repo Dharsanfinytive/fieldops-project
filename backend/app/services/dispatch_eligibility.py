@@ -163,6 +163,8 @@ def _get_redis_location(
     technician: Any,
     redis_client: Any,
     now: datetime,
+    location_max_age_seconds: int | None = None,
+    location_max_accuracy_meters: float | None = None,
 ) -> dict[str, Any]:
     """
     Retrieve a fresh, valid technician GPS location.
@@ -178,6 +180,11 @@ def _get_redis_location(
         "accuracy_meters": None,
         "reason": None,
     }
+
+    if location_max_age_seconds is None:
+        location_max_age_seconds = LOCATION_MAX_AGE_SECONDS
+    if location_max_accuracy_meters is None:
+        location_max_accuracy_meters = LOCATION_MAX_ACCURACY_METERS
 
     tenant_id = str(
         getattr(technician, "tenant_id", "") or ""
@@ -256,7 +263,7 @@ def _get_redis_location(
                 result["reason"] = "future_location_timestamp"
                 continue
 
-            if location_age > LOCATION_MAX_AGE_SECONDS:
+            if location_age > location_max_age_seconds:
                 result["reason"] = "stale_location"
                 continue
 
@@ -281,7 +288,7 @@ def _get_redis_location(
                     result["reason"] = "invalid_location_accuracy"
                     continue
 
-                if accuracy > LOCATION_MAX_ACCURACY_METERS:
+                if accuracy > location_max_accuracy_meters:
                     result["reason"] = "poor_location_accuracy"
                     continue
 
@@ -326,6 +333,8 @@ def evaluate_technician_dispatch_eligibility(
     redis_client: Any,
     fallback_location: tuple[float, float] | None = None,
     now: datetime | None = None,
+    location_max_age_seconds: int | None = None,
+    location_max_accuracy_meters: float | None = None,
 ) -> dict[str, Any]:
     """
     Evaluate whether a technician can be considered for dispatch.
@@ -431,6 +440,8 @@ def evaluate_technician_dispatch_eligibility(
         technician=technician,
         redis_client=redis_client,
         now=now,
+        location_max_age_seconds=location_max_age_seconds,
+        location_max_accuracy_meters=location_max_accuracy_meters,
     )
 
     coordinates = gps_result["coordinates"]

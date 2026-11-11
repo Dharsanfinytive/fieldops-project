@@ -41,8 +41,8 @@ _COPY_PARTS = {
         ),
     ),
     JobEvent.TECHNICIAN_ASSIGNED: (
-        ("A technician is assigned",),
-        ("Your service request has a technician assigned. We'll keep you posted.",),
+        ("{technician_name} is assigned to your request",),
+        ("{technician_name} has been assigned to your service request. We'll keep you posted.",),
     ),
     JobEvent.TECHNICIAN_ACCEPTED: (
         (
@@ -63,9 +63,9 @@ _COPY_PARTS = {
             "Still on it 🔎",
         ),
         (
-            "We're looking for another technician for your request.",
-            "Your request is back in matching while we find another technician.",
-            "We're continuing the search for the right technician.",
+            "The previously assigned technician couldn't take this job. We're assigning another technician.",
+            "Your assigned technician is unavailable, so we're finding the next match now.",
+            "This technician couldn't take the job. We'll update you when the next technician is assigned.",
         ),
     ),
     JobEvent.DELAYED: (
@@ -207,6 +207,8 @@ def personalize_customer_title(
     named_titles = {
         JobEvent.TECHNICIAN_ACCEPTED:
             f"{first_name} picked up your request 🙌",
+        JobEvent.TECHNICIAN_ASSIGNED:
+            f"{first_name} is assigned to your request",
         JobEvent.EN_ROUTE:
             f"{first_name} is on the way 📍",
         JobEvent.ON_SITE:
@@ -260,6 +262,7 @@ def _render_customer_copy(
 
     if event == JobEvent.EN_ROUTE:
         eta_min = getattr(job, "eta_min", None)
+        distance_km = getattr(job, "eta_distance_km", None)
 
         if isinstance(eta_min, (int, float)) and not isinstance(eta_min, bool):
             if eta_min >= 0:
@@ -268,6 +271,9 @@ def _render_customer_copy(
                     f"{int(eta_min)} minutes."
                 )
                 body = f"{body} {eta_text}"
+
+        if isinstance(distance_km, (int, float)) and not isinstance(distance_km, bool) and distance_km >= 0:
+            body = f"{body} The latest route estimate is about {distance_km:g} km."
 
         body = f"{body} Tap Track live to follow the visit 👀"
 
@@ -378,5 +384,6 @@ def build_card(event: JobEvent, job, technician) -> dict:
         "technician": {"name": name} if name else None,
         "eta_min": getattr(job, "eta_min", None),
         "eta_updated_at": getattr(job, "eta_updated_at", None),
+        "dispatch_attempt_id": getattr(job, "dispatch_attempt_id", None),
         "actions": actions,
     }

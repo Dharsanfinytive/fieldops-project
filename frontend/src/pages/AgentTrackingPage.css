@@ -266,6 +266,14 @@
 .agent-track-event-detail { grid-column: 1 / -1; padding: 12px; color: #344c3d; border: 1px solid #e1ebe4; border-radius: 10px; background: #fff; }
 .agent-track-event-detail strong { font-size: 12px; }
 .agent-track-event-detail p { margin: 5px 0 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-track-delivery-detail dl { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.agent-track-delivery-detail dl > div { min-width: 110px; padding: 8px 10px; border: 1px solid #e5ece7; border-radius: 9px; background: #f8fbf9; }
+.agent-track-delivery-detail dt { color: #7c8b82; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .35px; }
+.agent-track-delivery-detail dd { margin: 4px 0 0; color: #263c2f; font-size: 11px; font-weight: 700; overflow-wrap: anywhere; }
+.agent-track-delivery-detail dl > .is-error { border-color: #f1c4bd; background: #fff7f5; }
+.agent-track-delivery-detail dl > .is-error dd { color: #a52b19; }
+.agent-track-event-state.status-failed, .agent-track-event-state.status-permanent_failure, .agent-track-event-state.status-suppressed { color: #a52b19; background: #fff0ed; }
+.agent-track-event-state.status-pending, .agent-track-event-state.status-queued, .agent-track-event-state.status-processing, .agent-track-event-state.status-sending { color: #8a5c08; background: #fff7df; }
 
 /* Super Admin job board, aligned with the compact tracking table reference. */
 .agent-tracking-page { padding: 0 20px 36px; color: #101b25; background: #fff; }

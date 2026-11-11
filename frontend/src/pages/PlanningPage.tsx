@@ -1709,7 +1709,7 @@ useEffect(() => {
 const fetchCompletedCount = async () => {
   try {
     const response = await getJobs({
-      status: "COMPLETED",
+      status: "COMPLETED_OR_CLOSED",
       page: 1,
       limit: 100,
     });
@@ -1717,10 +1717,10 @@ const fetchCompletedCount = async () => {
     const completedRows = Array.isArray(response?.data)
       ? response.data.filter(
           (job: { status?: string }) =>
-            (job.status || "")
+          ["COMPLETED", "CLOSED"].includes((job.status || "")
               .trim()
               .toUpperCase()
-              .replace(/[\s-]+/g, "_") === "COMPLETED",
+              .replace(/[\s_-]+/g, "")),
         )
       : [];
 

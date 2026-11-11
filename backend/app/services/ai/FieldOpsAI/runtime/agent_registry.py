@@ -574,7 +574,6 @@ def create_default_agent_registry() -> AgentRegistry:
     Excluded types (not yet migrated)
     ----------------------------------
     - AITask.MONITORING
-    - AITask.SENTIMENT
     - AITask.COMMUNICATION
     """
     # Import here to avoid circular imports at module load time.
@@ -624,6 +623,7 @@ def create_default_agent_registry() -> AgentRegistry:
             config=config,
             orchestrator=orchestrator,  # type: ignore[arg-type]
         )
+
     registry.register(
         registration=AgentRegistration(
             agent_type=AITask.PLANNING,

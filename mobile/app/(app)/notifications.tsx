@@ -221,8 +221,8 @@ export default function NotificationsScreen() {
         <View style={styles.headerTop}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back to dashboard"
-            onPress={() => router.replace("/(app)/dashboard")}
+            accessibilityLabel="Go back"
+            onPress={() => router.back()}
             hitSlop={8}
             style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
           >

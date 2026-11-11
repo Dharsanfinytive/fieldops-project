@@ -25,7 +25,7 @@ import {
   StatusBadge,
 } from "../../src/components/ui";
 import type { CustomerJob, ServiceRequest } from "../../src/types/api";
-import { formatDate, normalizedStatus } from "../../src/utils/format";
+import { canCancelRequest, formatDate, isWithinCancellationWindow, normalizedStatus } from "../../src/utils/format";
 import { colors } from "../../src/theme";
 
 /**
@@ -217,6 +217,7 @@ export default function CustomerRequestsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [cancellingRequestId, setCancellingRequestId] = useState<number | null>(null);
 
   const load = useCallback(async (pull = false, silent = false) => {
     if (pull) setRefreshing(true);
@@ -431,6 +432,10 @@ export default function CustomerRequestsScreen() {
                 : undefined;
 
               const resolvedJobId = targetJobId ?? matchedJob?.id;
+              const showCancelRequest =
+                !isCompleted && !isCancelled &&
+                canCancelRequest(request.status, matchedJob?.status || request.created_job?.status, Boolean(targetJobId)) &&
+                isWithinCancellationWindow(request.created_at);
               const effectiveTechPhone =
                 technicianPhone || matchedJob?.assigned_technician_phone?.trim();
               const effectiveTechName =
@@ -780,6 +785,41 @@ export default function CustomerRequestsScreen() {
                       </>
                     )}
                   </View>
+                  {showCancelRequest ? (
+                    <Pressable
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        Alert.alert(
+                          "Cancel service request?",
+                          "You can cancel this booking only within 3 hours of placing it. Do you want to cancel now?",
+                          [
+                            { text: "Keep request", style: "cancel" },
+                            {
+                              text: "Cancel request",
+                              style: "destructive",
+                              onPress: () => {
+                                setCancellingRequestId(request.id);
+                                void customerApi.cancelRequest(request.id, "Cancelled by customer")
+                                  .then(() => {
+                                    Alert.alert("Request cancelled", "Your service request has been cancelled.");
+                                    void load(false, true);
+                                  })
+                                  .catch((e) => Alert.alert("Could not cancel request", getApiErrorMessage(e, "Please try again.")))
+                                  .finally(() => setCancellingRequestId(null));
+                              },
+                            },
+                          ],
+                        );
+                      }}
+                      disabled={cancellingRequestId === request.id}
+                      style={({ pressed }) => [styles.cancelRequestBtn, pressed && styles.pressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Cancel ${request.title}`}
+                    >
+                      <Ionicons name="close-circle-outline" size={17} color="#B42330" />
+                      <Text style={styles.cancelRequestText}>{cancellingRequestId === request.id ? "Cancelling…" : "Cancel request"}</Text>
+                    </Pressable>
+                  ) : null}
                 </Pressable>
               );
             })}
@@ -1354,6 +1394,26 @@ const styles = StyleSheet.create({
 
   normalDetailsText: {
     color: "#065F46",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  cancelRequestBtn: {
+    alignSelf: "flex-start",
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+
+  cancelRequestText: {
+    color: "#B42330",
     fontSize: 12,
     fontWeight: "800",
   },

@@ -12,7 +12,7 @@ import logging
 import os
 import requests
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from time import perf_counter
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
@@ -1087,16 +1087,6 @@ async def create_service_request(
             request=request,
         )
 
-        # Persist customer email work in the same transaction as the job so
-        # SMTP delivery does not depend on AI, Kafka, or background dispatch.
-        from ..services.email.transactional_outbox import persist_booking_email
-        persist_booking_email(
-            db,
-            new_job,
-            customer_id=str(current_user.user_id),
-            tenant_id=str(current_user.tenant_id),
-        )
-
         # The Job, linked ServiceRequest, and audit record share one transaction.
         db.commit()
         db.refresh(sr)
@@ -1334,6 +1324,15 @@ async def cancel_service_request(
         raise HTTPException(
             status_code=404,
             detail="Service request not found",
+        )
+
+    created_at = sr.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - created_at > timedelta(hours=3):
+        raise HTTPException(
+            status_code=400,
+            detail="Service requests can only be cancelled within 3 hours of booking.",
         )
 
     linked_job = None

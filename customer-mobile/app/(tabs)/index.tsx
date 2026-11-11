@@ -17,6 +17,7 @@ import Feather from "@expo/vector-icons/Feather";
 import { customerApi } from "../../src/api/customer";
 import type { ServiceCatalogItem } from "../../src/types/api";
 import { useFocusedAutoRefresh } from "../../src/hooks/useFocusedAutoRefresh";
+import { SERVICE_CATALOGUE_TAXONOMY, type TaxonomyServiceType } from "../../src/data/serviceCatalogueTaxonomy";
 
 const ASSETS =
   "https://raw.githubusercontent.com/ryeswanthkumar/fieldops-project/feature/current-work/frontend/public/services";
@@ -30,155 +31,35 @@ type ServiceCategory = {
   image: string;
   badgeBackground: string;
   badgeColor: string;
+  taxonomy: TaxonomyServiceType;
 };
 
-const CATEGORIES: ServiceCategory[] = [
-  {
-    id: "appliances",
-    title: "Home Appliances",
-    description: "AC, Refrigerator, Washing Machine...",
-    image: `${ASSETS}/appliances.png`,
-    badgeBackground: "#E1F5EC",
-    badgeColor: "#087D56",
-  },
-  {
-    id: "electrical",
-    title: "Electrical",
-    description: "Wiring, Fan, Switchboard, MCB...",
-    image: `${ASSETS}/electrical.png`,
-    badgeBackground: "#FFF2C9",
-    badgeColor: "#D18A00",
-  },
-  {
-    id: "plumbing",
-    title: "Plumbing",
-    description: "Leakage, Taps, Drainage, Water Pump...",
-    image: `${ASSETS}/plumbing.png`,
-    badgeBackground: "#DFF0FF",
-    badgeColor: "#087DC1",
-  },
-  {
-    id: "security",
-    title: "Security & Smart Home",
-    description: "CCTV, WiFi, Smart Lock, Video Doorbell...",
-    image: `${ASSETS}/security.png`,
-    badgeBackground: "#DFF8E8",
-    badgeColor: "#12854E",
-  },
-  {
-    id: "carpentry",
-    title: "Carpentry & Woodwork",
-    description: "Door Locks, Furniture, Modular Kitchen...",
-    image: `${ASSETS}/carpentry.png`,
-    badgeBackground: "#FFE9D6",
-    badgeColor: "#E75A00",
-  },
-  {
-    id: "cleaning",
-    title: "Cleaning & Maintenance",
-    description: "House Painting, Pest Control, Waterproofing...",
-    image: `${ASSETS}/cleaning.png`,
-    badgeBackground: "#F0E4FF",
-    badgeColor: "#8437D8",
-  },
-];
+const CATEGORIES: ServiceCategory[] = SERVICE_CATALOGUE_TAXONOMY.map((taxonomy) => ({
+  id: taxonomy.id,
+  title: taxonomy.name,
+  description: taxonomy.description,
+  image: `${ASSETS}/${taxonomy.image.split("/").pop()}`,
+  badgeBackground: taxonomy.theme.bg,
+  badgeColor: taxonomy.theme.color,
+  taxonomy,
+}));
 
 function catalogItemMatchesCategory(
   item: ServiceCatalogItem,
-  categoryId: string,
+  category: ServiceCategory,
 ): boolean {
-  const serviceText = [item.service_type, item.category]
-    .map((value) => String(value ?? "").trim().toLowerCase())
-    .filter(Boolean)
-    .join(" ");
-
-  const containsAny = (...keywords: string[]) =>
-    keywords.some((keyword) => serviceText.includes(keyword));
-
-  switch (categoryId) {
-    case "appliances":
-      return (
-        containsAny(
-          "appliance",
-          "hvac",
-          "air condition",
-          "refrigerator",
-          "fridge",
-          "washing machine",
-          "washer",
-          "dishwasher",
-          "microwave",
-          "oven",
-          "dryer",
-          "cooler",
-          "laundry",
-          "freezer",
-        ) || /\bac\b/.test(serviceText)
-      );
-    case "electrical":
-      return containsAny(
-        "electr",
-        "wiring",
-        "switchboard",
-        "mcb",
-        "lighting",
-        "light fixture",
-        "socket",
-        "outlet",
-        "circuit",
-        "ceiling fan",
-        "electrical fan",
-      );
-    case "plumbing":
-      return containsAny(
-        "plumb",
-        "leak",
-        "tap",
-        "drain",
-        "water pump",
-        "faucet",
-        "pipe",
-        "toilet",
-        "geyser",
-        "water heater",
-      );
-    case "security":
-      return containsAny(
-        "security",
-        "smart home",
-        "smart lock",
-        "cctv",
-        "wifi",
-        "video doorbell",
-        "doorbell",
-        "camera",
-        "alarm",
-        "access control",
-      );
-    case "carpentry":
-      return containsAny(
-        "carpent",
-        "woodwork",
-        "furniture",
-        "modular kitchen",
-        "cabinet",
-        "wooden door",
-        "door lock",
-        "shelf",
-      );
-    case "cleaning":
-      return containsAny(
-        "clean",
-        "paint",
-        "pest control",
-        "waterproof",
-        "maintenance",
-        "housekeeping",
-        "sanitation",
-      );
-    default:
-      return false;
-  }
+  const normalize = (value?: string) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const itemType = normalize(item.service_type);
+  const typeName = normalize(category.taxonomy.name);
+  const typeId = normalize(category.taxonomy.id);
+  const matchesType = itemType === typeName || itemType === typeId || itemType.includes(typeId) || typeName.includes(itemType);
+  const itemCategory = normalize(item.category);
+  const matchesKnownCategory = category.taxonomy.categories.some((entry) => {
+    const categoryName = normalize(entry.name);
+    const categoryId = normalize(entry.id);
+    return itemCategory === categoryName || itemCategory === categoryId || itemCategory.includes(categoryName) || categoryName.includes(itemCategory);
+  });
+  return matchesType || matchesKnownCategory;
 }
 
 export default function CustomerHomeScreen() {
@@ -211,7 +92,7 @@ export default function CustomerHomeScreen() {
 
     for (const category of CATEGORIES) {
       const matchingServices = serviceCatalog.filter(
-        (item) => catalogItemMatchesCategory(item, category.id),
+        (item) => catalogItemMatchesCategory(item, category),
       );
 
       counts[category.id] = new Set(
@@ -263,7 +144,7 @@ export default function CustomerHomeScreen() {
     router.push({
       pathname: "/requests/new",
       params: {
-        serviceType: category.title,
+        serviceType: category.id,
       },
     } as never);
   };

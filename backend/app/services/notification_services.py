@@ -606,7 +606,8 @@ class NotificationRouter:
 
             configuration_repository = (
                 CommunicationConfigurationRepository(
-                    db
+                    db,
+                    tenant_id="**platform**",
                 )
             )
 

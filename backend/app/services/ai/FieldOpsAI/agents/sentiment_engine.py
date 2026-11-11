@@ -49,6 +49,91 @@ class SentimentEngine:
     ) -> None:
         self.orchestrator = orchestrator or ai_orchestrator
 
+    @staticmethod
+    def _contains_phrase(message: str, phrase: str) -> bool:
+        """Match Latin phrases on token boundaries; retain exact-script matching elsewhere."""
+        if not phrase:
+            return False
+        if any(ord(character) > 127 for character in phrase):
+            return phrase in message
+        return re.search(
+            rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])",
+            message,
+            re.IGNORECASE,
+        ) is not None
+
+    @classmethod
+    def _has_phrase(cls, message: str, phrases) -> bool:
+        return any(cls._contains_phrase(message, phrase.lower()) for phrase in phrases)
+
+    @classmethod
+    def _safety_indicators(cls, message: str) -> list[str]:
+        """Find explicit hazards, ignoring a locally negated phrase only."""
+        normalized = message.lower()
+        rules = {
+            "FIRE": ("fire", "flames", "house is on fire", "தீ", "आग"),
+            "ELECTRICAL_SHOCK": (
+                "electric shock", "electrical shock", "getting shocked", "shock from the wire",
+                "மின்சார அதிர்ச்சி", "மின்சாரம் தாக்க", "बिजली का झटका",
+            ),
+            "EXPOSED_WIRING": (
+                "exposed wire", "live wire", "bare wire", "unsafe wiring", "sparking wire",
+                "வெளிப்பட்ட கம்பி", "மின்கம்பி", "खुला तार", "नंगा तार",
+            ),
+            "SMOKE_OR_BURNING": (
+                "burning smell", "smell of burning", "smoke near", "smoke coming", "sparks",
+                "எரியும் வாசனை", "புகை", "जलने की गंध", "धुआँ", "चिंगारी",
+            ),
+            "GAS_LEAK": ("gas leak", "smell of gas", "gas is leaking", "வாயு கசிவு", "गैस रिसाव"),
+            "INJURY": ("injured", "injury", "someone got hurt", "hurt by", "காயம்", "चोट"),
+            "IMMEDIATE_DANGER": (
+                "life threatening", "immediate danger", "unsafe", "dangerous situation",
+                "safety issue", "safety problem", "safety concern", "don't feel safe", "do not feel safe", "not safe",
+                "seguridad", "பாதுகாப்பு", "सुरक्षा",
+                "உடனடி ஆபத்து", "உயிருக்கு ஆபத்து", "तत्काल खतरा", "जान का खतरा",
+            ),
+            "EMERGENCY": ("emergency", "emergencia", "அவசரம்", "आपातकाल"),
+        }
+        negations = (
+            "no", "not", "never", "without", "isn't", "isnt", "wasn't", "wasnt",
+            "aren't", "arent", "there is no", "no hay", "sin", "இல்லை", "அல்ல",
+            "नहीं", "मत", "ना",
+        )
+        detected: list[str] = []
+        for category, phrases in rules.items():
+            for phrase in phrases:
+                pattern = (
+                    re.escape(phrase)
+                    if any(ord(character) > 127 for character in phrase)
+                    else rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])"
+                )
+                for match in re.finditer(pattern, normalized):
+                    prefix = normalized[:match.start()]
+                    clause_start = max(
+                        prefix.rfind(mark) for mark in (".", "!", "?", ";", ":")
+                    )
+                    clause = prefix[clause_start + 1:]
+                    for contrast in (" but ", " however ", " though ", " except "):
+                        clause = clause.rsplit(contrast, 1)[-1]
+                    negated = False
+                    if phrase != "not safe":
+                        for negation in negations:
+                            if cls._contains_phrase(clause, negation):
+                                after_negation = clause.rsplit(negation, 1)[-1]
+                                if len(after_negation.split()) <= 3:
+                                    negated = True
+                                    break
+                    suffix = normalized[match.end():match.end() + 12]
+                    if any(term in suffix for term in (" இல்லை", " அல்ல", " नहीं", " नहीँ")):
+                        negated = True
+                    if negated:
+                        continue
+                    detected.append(category)
+                    break
+                if category in detected:
+                    break
+        return detected
+
     # ---------------------------------------------------------
     # Keyword fallback
     # ---------------------------------------------------------
@@ -69,6 +154,7 @@ class SentimentEngine:
         """
 
         message = context.message.lower().strip()
+        safety_indicators = self._safety_indicators(message)
 
         # -----------------------------------------------------
         # Positive keywords
@@ -139,6 +225,14 @@ class SentimentEngine:
             "angry",
             "unhappy",
             "dissatisfied",
+            "not satisfied",
+            "not happy",
+            "not pleased",
+            "not fixed",
+            "not resolved",
+            "not good",
+            "no satisfecho",
+            "no satisfecha",
             "frustrated",
             "disappointed",
             "hate",
@@ -185,6 +279,7 @@ class SentimentEngine:
             "வேலை செய்யவில்லை",
             "சரி இல்லை",
             "திருப்தி இல்லை",
+            "சரி ஆகவில்லை",
 
             # Hindi
             "बुरा",
@@ -198,6 +293,7 @@ class SentimentEngine:
             "समस्या",
             "शिकायत",
             "काम नहीं कर रहा",
+            "संतुष्ट नहीं",
             "सबसे खराब",
         )
 
@@ -240,13 +336,21 @@ class SentimentEngine:
         # -----------------------------------------------------
 
         for word in positive_words:
-            if word in message:
+            if self._contains_phrase(message, word):
+                english_negation = re.search(
+                    rf"\b(?:not|never|no)\s+(?:very\s+|really\s+)?{re.escape(word)}\b",
+                    message,
+                )
+                script_negation = (
+                    re.search(rf"{re.escape(word)}\s*(?:இல்லை|அல்ல|नहीं|नहीँ)", message)
+                    if any(ord(character) > 127 for character in word)
+                    else None
+                )
+                if english_negation or script_negation:
+                    continue
                 positive_score += 1.0
 
-                if any(
-                    f"{intensifier} {word}" in message
-                    for intensifier in intensifiers
-                ):
+                if self._has_phrase(message, [f"{intensifier} {word}" for intensifier in intensifiers]):
                     positive_score += 0.5
 
         # -----------------------------------------------------
@@ -254,13 +358,17 @@ class SentimentEngine:
         # -----------------------------------------------------
 
         for word in negative_words:
-            if word in message:
+            if self._contains_phrase(message, word):
+                if word in {"bad", "terrible", "awful", "worst", "poor"} and re.search(
+                    rf"\bnot\s+(?:very\s+|really\s+)?{re.escape(word)}\b",
+                    message,
+                ):
+                    # Common English litotes should not be counted as a complaint.
+                    positive_score += 0.5
+                    continue
                 negative_score += 1.0
 
-                if any(
-                    f"{intensifier} {word}" in message
-                    for intensifier in intensifiers
-                ):
+                if self._has_phrase(message, [f"{intensifier} {word}" for intensifier in intensifiers]):
                     negative_score += 0.5
 
         # Use an explicitly supplied feedback rating as supporting signal.
@@ -338,13 +446,13 @@ class SentimentEngine:
 
         elif sentiment == "NEGATIVE":
             if any(
-                word in message
+                self._contains_phrase(message, word)
                 for word in anger_words
             ):
                 emotion = "ANGRY"
 
             elif any(
-                word in message
+                self._contains_phrase(message, word)
                 for word in disappointment_words
             ):
                 emotion = "DISAPPOINTED"
@@ -358,15 +466,17 @@ class SentimentEngine:
         else:
             emotion = "CALM"
 
+        if safety_indicators and emotion in {"CALM", "CONFUSED"}:
+            emotion = "CONCERNED"
+        elif self._has_phrase(message, ("afraid", "scared", "worried", "anxious", "பயம்", "கவலை", "डर", "चिंतित")):
+            emotion = "ANXIOUS"
+
         # -----------------------------------------------------
         # Determine urgency
         # -----------------------------------------------------
 
         high_urgency_keywords = (
             # English
-            "safety",
-            "danger",
-            "emergency",
             "manager",
             "supervisor",
             "escalate",
@@ -379,8 +489,6 @@ class SentimentEngine:
             "multiple complaints",
 
             # Spanish
-            "seguridad",
-            "emergencia",
             "gerente",
             "supervisor",
             "escalar",
@@ -388,16 +496,12 @@ class SentimentEngine:
             "no funciona",
 
             # Tamil
-            "பாதுகாப்பு",
-            "அவசரம்",
             "மேலாளர்",
             "புகார்",
             "ரத்து",
             "வேலை செய்யவில்லை",
 
             # Hindi
-            "सुरक्षा",
-            "आपातकाल",
             "मैनेजर",
             "प्रबंधक",
             "एस्केलेट",
@@ -419,23 +523,29 @@ class SentimentEngine:
             "शिकायत",
         )
 
-        critical_urgency_keywords = (
-            "immediate danger", "life threatening", "electric shock", "fire",
-            "unsafe", "emergency", "peligro inmediato", "emergencia",
-            "மின்சார அதிர்ச்சி", "அவசரம்", "तत्काल खतरा", "आपातकाल",
-        )
+        critical_urgency_keywords = ("critical danger", "urgent safety issue")
 
-        if any(keyword in message for keyword in critical_urgency_keywords):
+        critical_safety_indicators = {
+            "FIRE", "ELECTRICAL_SHOCK", "EXPOSED_WIRING", "GAS_LEAK",
+            "INJURY", "EMERGENCY",
+        }
+        if (
+            any(indicator in critical_safety_indicators for indicator in safety_indicators)
+            or self._has_phrase(message, critical_urgency_keywords)
+        ):
             urgency = "CRITICAL"
 
+        elif safety_indicators:
+            urgency = "HIGH"
+
         elif any(
-            keyword in message
+            self._contains_phrase(message, keyword)
             for keyword in high_urgency_keywords
         ):
             urgency = "HIGH"
 
         elif any(
-            keyword in message
+            self._contains_phrase(message, keyword)
             for keyword in medium_urgency_keywords
         ):
             urgency = "MEDIUM"
@@ -472,10 +582,8 @@ class SentimentEngine:
         )
 
         requires_human = (
-            any(
-                keyword in message
-                for keyword in human_intervention_keywords
-            )
+            bool(safety_indicators)
+            or self._has_phrase(message, human_intervention_keywords)
             or emotion == "ANGRY"
             or (
                 sentiment == "NEGATIVE"
@@ -516,9 +624,8 @@ class SentimentEngine:
             emotion=emotion,
             urgency=urgency,
             severity=(
-                "CRITICAL"
-                if any(word in message for word in ("safety", "danger", "emergency", "seguridad", "emergencia", "பாதுகாப்பு", "அவசரம்", "सुरक्षा", "आपातकाल"))
-                else "HIGH" if any(word in message for word in ("third time", "multiple unresolved", "injured", "injury", "unsafe"))
+                "CRITICAL" if safety_indicators or urgency == "CRITICAL"
+                else "HIGH" if self._has_phrase(message, ("third time", "multiple unresolved", "injured", "injury", "unsafe", "still not fixed"))
                 else "MEDIUM" if sentiment in {"NEGATIVE", "MIXED"}
                 else "LOW"
             ),
@@ -527,28 +634,42 @@ class SentimentEngine:
             confidence=confidence,
             summary=summary,
             recommended_action=(
-                "Review the customer's message and contact them with an update."
+                "Immediately route this safety report to an authorized human for review."
+                if safety_indicators
+                else "Review the customer's message and contact them with an update."
                 if sentiment in {"NEGATIVE", "MIXED"} or requires_human
                 else "No follow-up is indicated by this message."
             ),
+            analysis_source="KEYWORD_FALLBACK",
         )
 
-    @staticmethod
-    def _classify_issue_categories(message: str) -> list[str]:
+    @classmethod
+    def _classify_issue_categories(cls, message: str) -> list[str]:
         categories = []
         rules = (
-            ("TECHNICIAN_DELAY", ("late", "waiting", "not arrived", "delay")),
-            ("COMMUNICATION", ("no response", "not responding", "nobody is responding", "no update", "nobody told me", "no one told me", "wasn't informed", "was not informed")),
-            ("SERVICE_QUALITY", ("poor service", "bad service", "did not fix", "not fixed")),
+            ("SERVICE_DELAY", ("late", "waiting", "not arrived", "delay", "waited for hours", "technician has not arrived")),
+            ("SUPPORT_NON_RESPONSE", ("no response", "not responding", "nobody is responding", "no update", "nobody told me", "no one told me", "wasn't informed", "was not informed")),
+            ("TECHNICIAN_BEHAVIOR", ("rude", "unprofessional", "technician shouted", "technician was rude")),
+            ("SERVICE_QUALITY", ("poor service", "bad service", "did not fix", "not fixed", "incomplete work")),
             ("SCHEDULING", ("appointment", "reschedule", "schedule")),
-            ("PRICING_BILLING", ("price", "bill", "charge", "cost")),
-            ("UNRESOLVED_ISSUE", ("again", "still broken", "still not", "unresolved")),
-            ("SAFETY", ("safety", "danger", "unsafe", "emergency")),
+            ("PRICING_BILLING", ("price", "bill", "invoice", "charge", "cost", "incorrect amount")),
+            ("PAYMENT", ("payment failed", "charged twice", "refund", "payment")),
+            ("EQUIPMENT_DAMAGE", ("damaged", "damage", "broke my", "broken by the technician")),
+            ("UNRESOLVED_ISSUE", ("still broken", "still not fixed", "unresolved", "issue remains", "problem still exists")),
+            ("REPEATED_COMPLAINT", ("complained twice", "third time", "again and again", "multiple complaints", "already complained")),
+            ("SAFETY", tuple(phrase for phrases in (
+                ("electric shock", "electrical shock", "getting shocked", "shock from the wire", "மின்சார அதிர்ச்சி", "மின்சாரம் தாக்க", "बिजली का झटका"),
+                ("fire", "flames", "house is on fire", "தீ", "आग"),
+                ("exposed wire", "live wire", "bare wire", "unsafe wiring", "sparks", "gas leak", "burning smell", "unsafe", "danger", "safety"),
+            ) for phrase in phrases)),
         )
         for category, terms in rules:
-            if any(term in message for term in terms):
+            if category == "SAFETY":
+                if cls._safety_indicators(message):
+                    categories.append(category)
+            elif cls._has_phrase(message, terms):
                 categories.append(category)
-        if not categories and any(term in message for term in ("great", "thanks", "thank you", "excellent", "customer rating:")):
+        if not categories and cls._has_phrase(message, ("great", "thanks", "thank you", "excellent", "customer rating:")):
             categories.append("GENERAL_FEEDBACK")
         return categories[:5]
 
@@ -581,6 +702,23 @@ class SentimentEngine:
                 context=context.model_dump(),
                 response_schema=SentimentDecision,
             )
+
+            # Safety detection is independent of the model's sentiment and
+            # confidence. An explicit hazard always requires a human review.
+            indicators = self._safety_indicators(context.message.lower())
+            if indicators:
+                categories = list(decision.issue_categories or [])
+                if "SAFETY" not in categories:
+                    categories.append("SAFETY")
+                decision = decision.model_copy(update={
+                    "urgency": "CRITICAL",
+                    "severity": "CRITICAL",
+                    "requires_human": True,
+                    "emotion": "CONCERNED" if decision.emotion in {"CALM", "CONFUSED"} else decision.emotion,
+                    "issue_categories": categories[:5],
+                    "recommended_action": "Immediately route this safety report to an authorized human for review.",
+                    "analysis_source": "AI",
+                })
 
             elapsed = time.perf_counter() - start_time
 

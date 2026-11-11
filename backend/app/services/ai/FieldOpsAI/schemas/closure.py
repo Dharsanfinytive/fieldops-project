@@ -67,6 +67,12 @@ class ClosureContext(BaseModel):
         description="Optional customer confirmation."
     )
 
+    sentiment_concerns: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Tenant/job-scoped unresolved concerns previously flagged by the Sentiment Agent; review only, never change job state.",
+    )
+
 
 # ==========================================================
 # AI Decision

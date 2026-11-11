@@ -139,7 +139,7 @@ export default function CustomerSignatureScreen() {
       <Pressable
         accessibilityRole="button"
         disabled={isSubmitting}
-        onPress={() => router.replace("/(app)/jobs")}
+        onPress={() => router.back()}
         style={styles.backButton}
       >
         <Text style={styles.backText}>

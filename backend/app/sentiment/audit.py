@@ -50,6 +50,7 @@ class SentimentAuditLogger:
             confidence=analysis_result.get("confidence"),
             model_used=analysis_result.get("model_used"),
             cost=analysis_result.get("cost"),
+            notes=analysis_result.get("notes"),
         )
 
     # ------------------------------------------------------------------

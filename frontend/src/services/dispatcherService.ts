@@ -13,6 +13,8 @@ export interface Dispatcher {
   is_on_duty: boolean;
   phone_number: string | null;
   last_login: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 /**

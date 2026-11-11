@@ -20,7 +20,6 @@ export default function TechniciansDispatchersPage({
     requestedView ?? "technicians",
   );
 
-  // Keep the displayed page synchronized with App.tsx navigation.
   useEffect(() => {
     setActiveView(requestedView ?? "technicians");
   }, [requestedView]);
@@ -34,19 +33,22 @@ export default function TechniciansDispatchersPage({
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: "8px",
-    minHeight: "40px",
-    padding: "0 18px",
-    border: selected
-      ? "1px solid #168653"
-      : "1px solid #E3ECE7",
-    borderRadius: "9px",
-    background: selected ? "#168653" : "#FFFFFF",
-    color: selected ? "#FFFFFF" : "#334155",
+    gap: "5px",
+    minHeight: "34px",
+    padding: "0 11px",
+    border: selected ? "1px solid #075a35" : "1px solid #dce6e1",
+    borderRadius: "11px",
+    background: selected
+      ? "linear-gradient(145deg, #08683c, #034a2b)"
+      : "#FFFFFF",
+    color: selected ? "#FFFFFF" : "#344256",
     fontSize: "12px",
-    fontWeight: 700,
+    fontWeight: 750,
     cursor: "pointer",
     whiteSpace: "nowrap",
+    boxShadow: selected
+      ? "0 5px 12px rgba(4, 81, 45, .16)"
+      : "0 2px 6px rgba(23, 50, 39, .06)",
   });
 
   return (
@@ -56,100 +58,51 @@ export default function TechniciansDispatchersPage({
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
-        gap: "12px",
-        padding: "14px",
-        boxSizing: "border-box",
-        background: "#EEF4F1",
+        background: "#F3F8F5",
         overflow: "hidden",
         fontFamily: "'Inter', sans-serif",
       }}
     >
       <style>{`
+        .staff-switch-heading {
+          position: relative;
+          z-index: 5;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 12px;
+          flex-wrap: wrap;
+          min-height: 44px;
+          padding: 5px clamp(14px, 1.5vw, 20px);
+          border-bottom: 1px solid #DFEBE4;
+          background: linear-gradient(105deg, #fff 0%, #fff 58%, #eff8f2 100%);
+          box-sizing: border-box;
+        }
         .staff-switch-body {
           flex: 1;
           min-height: 0;
           overflow: auto;
         }
-
-        .staff-switch-body .tld-header-responsive > div:first-child,
-        .staff-switch-body .dispatcher-header > div:first-child {
+        .staff-switch-body .tld-header-responsive > div:first-child {
           display: none !important;
         }
-
-        .staff-switch-body .tld-header-responsive,
-        .staff-switch-body .dispatcher-header {
+        .staff-switch-body .tld-header-responsive {
           justify-content: flex-end !important;
         }
-
-        @media (max-width: 600px) {
-          .staff-switch-heading {
-            flex-direction: column !important;
-            align-items: flex-start !important;
-          }
-
-          .staff-switch-buttons {
-            width: 100%;
-          }
-
-          .staff-switch-buttons button {
-            flex: 1;
-          }
+        @media (max-width: 760px) {
+          .staff-switch-heading { align-items: flex-start !important; }
+          .staff-switch-buttons { width: 100%; }
+          .staff-switch-buttons button { flex: 1; }
         }
       `}</style>
 
-      <div
-        className="staff-switch-heading"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "16px",
-          flexWrap: "wrap",
-          padding: "16px 20px",
-          background: "#FFFFFF",
-          border: "1px solid #E3ECE7",
-          borderRadius: "12px",
-          boxShadow: "0 1px 4px rgba(47,79,62,.05)",
-          boxSizing: "border-box",
-        }}
-      >
-        <div>
-          <h1
-            style={{
-              margin: 0,
-              fontSize: "20px",
-              fontWeight: 750,
-              color: "#172B24",
-            }}
-          >
-            {allowDispatcherToggle
-              ? "Technicians & Dispatchers"
-              : activeView === "dispatchers"
-                ? "Dispatchers"
-                : "Technicians"}
-          </h1>
-
-          <p
-            style={{
-              margin: "6px 0 0",
-              fontSize: "12px",
-              color: "#64748B",
-            }}
-          >
-            Manage your organization's staff
-          </p>
-        </div>
-
+      <header className="staff-switch-heading">
         {allowDispatcherToggle && (
           <div
             className="staff-switch-buttons"
             role="tablist"
             aria-label="Choose staff type"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
+            style={{ display: "flex", alignItems: "center", gap: 10 }}
           >
             <button
               type="button"
@@ -158,10 +111,8 @@ export default function TechniciansDispatchersPage({
               style={tabStyle(activeView === "technicians")}
               onClick={() => changeView("technicians")}
             >
-              <Users size={16} />
-              Technicians
+              <Users size={14} /> Technicians
             </button>
-
             <button
               type="button"
               role="tab"
@@ -169,20 +120,19 @@ export default function TechniciansDispatchersPage({
               style={tabStyle(activeView === "dispatchers")}
               onClick={() => changeView("dispatchers")}
             >
-              <Users size={16} />
-              Dispatchers
+              <Users size={14} /> Dispatchers
             </button>
           </div>
         )}
-      </div>
+      </header>
 
-      <div className="staff-switch-body">
+      <main className="staff-switch-body">
         {activeView === "technicians" ? (
           <TechnicianListPage />
         ) : (
           <DispatcherPage />
         )}
-      </div>
+      </main>
     </div>
   );
 }

@@ -158,7 +158,7 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleEl);
 }
 
-import CustomerTrackingPage from './pages/customer/CustomerTrackingPage';
+import PublicTrackingPage from './pages/customer/PublicTrackingPage';
 const container = document.getElementById('root');
 if (container) {
   const path = window.location.pathname;
@@ -167,7 +167,7 @@ if (container) {
 
   if (isTrackingRoute && trackingToken) {
     createRoot(container).render(
-      <CustomerTrackingPage token={trackingToken} />
+      <PublicTrackingPage token={decodeURIComponent(trackingToken)} />
     );
   } else {
     createRoot(container).render(

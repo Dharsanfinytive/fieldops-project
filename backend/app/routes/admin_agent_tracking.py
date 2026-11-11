@@ -1,4 +1,4 @@
-"""Read-only job and AI-agent workflow tracking for super admins."""
+"""Read-only job and AI-agent workflow tracking for organization operators."""
 
 from __future__ import annotations
 
@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session, joinedload
 from ..auth.dependencies import AuthenticatedUser, get_current_user
 from ..auth.rbac import UserRole
 from ..database import get_db
-from ..models import AuditEvent, Job, JobMessage, SentimentThreadMessage
+from ..models import AuditEvent, InAppNotification, Job, JobMessage, SentimentThreadMessage
+from ..models.transactional_email_outbox import TransactionalEmailOutbox
+from ..models_legacy import NotificationChannelDelivery
+from ..models.user import User
+from ..models_legacy import Technician
+from ..models.sentiment_escalation import SentimentEscalation
 
 
 router = APIRouter(
@@ -27,6 +32,15 @@ ACCEPTED_STATUSES = {
     "CLOSED",
 }
 TERMINAL_STATUSES = {"COMPLETED", "CLOSED", "CANCELLED", "CANCELED"}
+
+
+def _role_name(current_user: AuthenticatedUser) -> str:
+    role = getattr(current_user.role, "value", current_user.role)
+    return str(role or "").strip().lower()
+
+
+def _can_view_agent_tracking(current_user: AuthenticatedUser) -> bool:
+    return _role_name(current_user) in {"head", "super_admin"}
 
 
 def _utc_iso(value: datetime | None) -> str | None:
@@ -91,48 +105,48 @@ def _track_job(job: Job) -> dict:
             "intake",
             "Request Received",
             "complete",
-            "Job request was accepted into the workflow.",
+            "Customer created the job. The Communication Agent records the in-app customer update.",
             job.created_at,
         ),
         _stage(
             "planning",
             "Plan Job",
             "complete" if is_assigned or is_accepted or is_closed else "active",
-            "Technician assignment is recorded." if is_assigned or is_accepted else "Preparing technician options.",
+            "Planning Agent selected technician candidates." if is_assigned or is_accepted else "Planning Agent is preparing ranked technician options.",
             assigned_time if is_assigned else None,
         ),
         _stage(
             "dispatch",
             "Assign Technician",
             "complete" if is_accepted or is_closed else "waiting" if waiting_for_acceptance else "active",
-            "Technician accepted the assignment." if is_accepted else "Waiting for technician acceptance." if waiting_for_acceptance else "Finding and assigning a technician.",
+            "Technician accepted; dispatch is confirmed." if is_accepted else "Assignment notice sent; waiting for accept or reject." if waiting_for_acceptance else "Dispatcher offers ranked technicians and continues with the next group after rejection.",
             assigned_time,
         ),
         _stage(
             "communication",
             "Communicate",
             "event_driven" if is_accepted else "locked",
-            "Runs on assignment and job updates." if is_accepted else "Available after technician acceptance.",
+            "Sends event-driven in-app/push updates and chat; sends booking and completion email through the transactional outbox. SLA reminders stop when Start is pressed." if is_accepted else "Sends assignment/rejection updates; acceptance starts chat and booking email. SLA reminders stop when Start is pressed.",
             job.updated_at if is_accepted else None,
         ),
         _stage(
             "technician_work",
             "Track Work",
             "complete" if is_completed else "active" if status in {"EN_ROUTE", "ON_SITE", "IN_PROGRESS"} else "locked",
-            "Technician completed the service." if is_completed else "Technician is working on the service." if status in {"EN_ROUTE", "ON_SITE", "IN_PROGRESS"} else "Starts after the technician accepts and begins the visit.",
+            "Completion is handed to Closure Agent for authorization." if is_completed else "Start and on-site actions create chat and notification updates; Start includes the latest GPS route estimate when available." if status in {"EN_ROUTE", "ON_SITE", "IN_PROGRESS"} else "After acceptance, Start and on-site actions create customer chat and notification updates.",
             job.work_started_at or job.on_site_at or job.en_route_at,
         ),
         _stage(
             "sentiment",
             "Check Customer Mood",
-            "event_driven" if is_accepted else "locked",
-            "Runs when customer messages need analysis." if is_accepted else "Available after technician acceptance.",
+            "event_driven",
+            "Analyzes customer messages and feedback as they arrive; review alerts are generated for high risk or unresolved concerns.",
         ),
         _stage(
             "closure",
             "Close Job",
             "complete" if is_closed and status not in {"CANCELLED", "CANCELED"} else "active" if is_completed else "locked",
-            "Job closure is complete." if is_closed and status not in {"CANCELLED", "CANCELED"} else "Preparing final closure." if is_completed else "Starts when service is completed.",
+            "Closure Agent recorded the final job closure." if is_closed and status not in {"CANCELLED", "CANCELED"} else "Closure Agent must authorize the completed job before final closure communication." if is_completed else "Closure Agent handles final approval and completion email after service completion.",
             job.closed_at or job.completed_at,
         ),
     ]
@@ -168,6 +182,29 @@ def _event(timestamp: datetime | None, agent: str, title: str, detail: str, kind
     }
 
 
+def _communication_agent(event_type: str, channel: str | None = None) -> str:
+    normalized = str(event_type or "").lower()
+    if normalized in {"invoice_finalized", "invoice_ready", "closure", "job_closed"}:
+        return "Closure Agent"
+    if normalized.startswith("technician_job_reminder"):
+        return "Communication Agent · Reminders"
+    if channel == "email" and normalized == "booking_confirmation":
+        return "Communication Agent"
+    return "Communication Agent"
+
+
+def _delivery_event_type(delivery: NotificationChannelDelivery, notification) -> tuple[str, int | None]:
+    """Recover lifecycle event/version from the delivery idempotency key."""
+    parts = str(delivery.idempotency_key or "").split(":")
+    if len(parts) >= 7 and parts[0] == str(notification.job_id):
+        try:
+            version = int(parts[-1])
+        except (TypeError, ValueError):
+            version = None
+        return parts[1], version
+    return str(notification.type or "notification"), None
+
+
 @router.get("/{job_id}")
 def get_agent_tracking_job(
     job_id: int,
@@ -176,11 +213,11 @@ def get_agent_tracking_job(
 ) -> dict:
     from fastapi import HTTPException, status
 
-    if current_user.role not in {UserRole.HEAD, UserRole.SUPER_ADMIN}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent tracking is restricted to Super Admin.")
+    if not _can_view_agent_tracking(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent tracking is restricted to organization operators.")
 
     query = db.query(Job).options(joinedload(Job.technician)).filter(Job.id == job_id)
-    if current_user.role == UserRole.SUPER_ADMIN:
+    if _role_name(current_user) != "head":
         query = query.filter(Job.tenant_id == current_user.tenant_id)
     job = query.first()
     if job is None:
@@ -224,25 +261,220 @@ def get_agent_tracking_job(
     if job.cancelled_at:
         events.append(_event(job.cancelled_at, "Dispatcher Agent", "Job cancelled", job.cancellation_reason or "The job was cancelled.", "dispatch", input={"job_id": job.id, "attempt_count": getattr(job, "attempt_count", None)}, output={"status": tracked["status"], "cancellation_reason": job.cancellation_reason, "cancelled_at": _utc_iso(job.cancelled_at)}))
 
+    # The job card is an in-app progress card, so it is updated in place as
+    # lifecycle events advance. Delivery rows retain each channel attempt and
+    # its event version, which lets the timeline show the actual send history.
+    related_tenants = {
+        str(value) for value in (
+            job.tenant_id,
+            job.customer_tenant_id,
+            getattr(getattr(job, "technician", None), "tenant_id", None),
+        ) if value
+    }
+    notification_query = db.query(InAppNotification).filter(
+        InAppNotification.job_id == str(job.id)
+    )
+    if _role_name(current_user) != "head":
+        notification_query = notification_query.filter(InAppNotification.tenant_id.in_(related_tenants))
+    notifications = notification_query.order_by(
+        InAppNotification.created_at.asc(), InAppNotification.id.asc()
+    ).all()
+    notifications_by_id = {str(item.id): item for item in notifications}
+    technician_recipient_ids = {
+        str(item.recipient_id) for item in notifications
+        if item.recipient_role == "technician" and item.recipient_id
+    }
+    technician_names = {
+        str(item.tech_id): item.technician_name
+        for item in db.query(Technician).filter(Technician.tech_id.in_(technician_recipient_ids)).all()
+    } if technician_recipient_ids else {}
+    user_recipient_ids = {
+        str(item.recipient_id) for item in notifications
+        if item.recipient_role not in {"customer", "technician"} and item.recipient_id
+    }
+    user_names = {
+        str(item.id): f"{item.first_name or ''} {item.last_name or ''}".strip() or item.email
+        for item in db.query(User).filter(User.id.in_(user_recipient_ids)).all()
+    } if user_recipient_ids else {}
+
+    def recipient_name(item: InAppNotification) -> str | None:
+        role = str(item.recipient_role or "").lower()
+        if role == "customer":
+            return job.customer_name
+        if role == "technician":
+            return technician_names.get(str(item.recipient_id))
+        return user_names.get(str(item.recipient_id))
+
+    for item in notifications:
+        kind = str(item.type or "notification")
+        title = item.title or kind.replace("_", " ").title()
+        events.append(_event(
+            item.updated_at or item.created_at,
+            _communication_agent(kind),
+            title,
+            item.body or "In-app notification recorded.",
+            "notification",
+            notification_id=str(item.id),
+            channel="in_app",
+            delivery_status=str(item.status or "UNREAD").lower(),
+            recipient_role=item.recipient_role or "unknown",
+            recipient_id=str(item.recipient_id) if item.recipient_id else None,
+            recipient_name=recipient_name(item),
+            event_type=kind,
+            event_version=item.event_version,
+        ))
+
+    delivery_query = db.query(NotificationChannelDelivery).filter(
+        NotificationChannelDelivery.notification_id.in_(list(notifications_by_id) or ["__none__"])
+    )
+    if _role_name(current_user) != "head":
+        delivery_query = delivery_query.filter(NotificationChannelDelivery.tenant_id.in_(related_tenants))
+    for delivery in delivery_query.order_by(
+        NotificationChannelDelivery.created_at.asc(), NotificationChannelDelivery.id.asc()
+    ).all():
+        notification = notifications_by_id.get(str(delivery.notification_id))
+        if notification is None:
+            continue
+        event_type, version = _delivery_event_type(delivery, notification)
+        current_event = event_type == str(notification.type or "")
+        detail = (
+            notification.body or "Communication delivery recorded."
+            if current_event else
+            f"A {delivery.channel} delivery was recorded for {event_type.replace('_', ' ')}."
+        )
+        events.append(_event(
+            delivery.updated_at or delivery.created_at,
+            _communication_agent(event_type, delivery.channel),
+            f"{event_type.replace('_', ' ').title()} · {delivery.channel.replace('_', ' ').title()}",
+            detail,
+            "delivery",
+            notification_id=str(delivery.notification_id),
+            channel=str(delivery.channel),
+            delivery_status=str(delivery.status or "unknown").lower(),
+            attempts=int(delivery.attempts or 0),
+            recipient_role=notification.recipient_role or "unknown",
+            recipient_id=str(delivery.recipient_id),
+            recipient_name=recipient_name(notification),
+            event_type=event_type,
+            event_version=version,
+            error=delivery.error_message,
+        ))
+
+    email_query = db.query(TransactionalEmailOutbox).filter(
+        TransactionalEmailOutbox.job_id == job.id
+    )
+    if _role_name(current_user) != "head":
+        email_query = email_query.filter(TransactionalEmailOutbox.tenant_id.in_(related_tenants))
+    for email in email_query.order_by(
+        TransactionalEmailOutbox.created_at.asc(), TransactionalEmailOutbox.id.asc()
+    ).all():
+        email_title = (
+            "Booking confirmation email"
+            if email.event_type == "booking_confirmation"
+            else "Completion email"
+            if email.event_type == "invoice_finalized"
+            else f"{str(email.event_type).replace('_', ' ').title()} email"
+        )
+        events.append(_event(
+            email.sent_at or email.updated_at or email.created_at,
+            _communication_agent(email.event_type, "email"),
+            email_title,
+            f"Customer email delivery is {email.status}." + (f" {email.last_error}" if email.last_error else ""),
+            "delivery",
+            channel="email",
+            delivery_status=str(email.status or "unknown").lower(),
+            attempts=int(email.attempts or 0),
+            recipient_role="customer",
+            event_type=email.event_type,
+            event_version=email.event_version,
+            provider_message_id=email.provider_message_id,
+            smtp_status=email.smtp_status,
+        ))
+
     audit_query = db.query(AuditEvent).filter(AuditEvent.job_id == str(job.id))
-    if current_user.role == UserRole.SUPER_ADMIN:
+    if _role_name(current_user) != "head":
         audit_query = audit_query.filter(AuditEvent.tenant_id == current_user.tenant_id)
     for record in audit_query.order_by(AuditEvent.timestamp.asc(), AuditEvent.id.asc()).all():
         events.append(_event(record.timestamp or record.created_at, "Workflow Log", record.event_type.replace("_", " ").title(), record.reason or str(record.details or "Job status updated."), "audit", input={"old_status": record.old_status, "actor_id": record.actor_id}, output={"new_status": record.new_status, "reason": record.reason, "details": record.details, "correlation_id": record.correlation_id}))
 
     message_query = db.query(JobMessage).filter(JobMessage.job_id == job.id)
-    if current_user.role == UserRole.SUPER_ADMIN:
+    if _role_name(current_user) != "head":
         message_query = message_query.filter(JobMessage.tenant_id == current_user.tenant_id)
     for message in message_query.order_by(JobMessage.created_at.asc()).all():
-        events.append(_event(message.created_at, "Communication Agent", f"{message.sender_role.title()} message", message.body, "communication", message_id=message.id, sender_role=message.sender_role, input={"job_id": job.id, "sender_role": message.sender_role}, output={"message": message.body, "created_at": _utc_iso(message.created_at)}))
+        message_body = str(message.body or "")
+        automatic = (
+            message_body.startswith("Automatic job update from ")
+            or "your technician for job #" in message_body.lower()
+        )
+        actor_name = getattr(getattr(message, "sender", None), "first_name", None)
+        events.append(_event(
+            message.created_at,
+            "Communication Agent" if automatic else str(message.sender_role).title(),
+            f"{message.sender_role.title()} chat message",
+            message.body,
+            "communication",
+            message_id=message.id,
+            sender_role=message.sender_role,
+            channel="in_app_chat",
+            delivery_status="delivered" if message.delivered_at else "sent",
+            actor=actor_name,
+            recipient_role="customer" if message.sender_role == "technician" else "technician",
+        ))
 
-    sentiment_query = db.query(SentimentThreadMessage).filter(SentimentThreadMessage.job_id == job.id)
+    sentiment_query = db.query(SentimentThreadMessage).filter(
+        SentimentThreadMessage.job_id == job.id,
+        SentimentThreadMessage.tenant_id == job.tenant_id,
+    )
     if current_user.role == UserRole.SUPER_ADMIN:
         sentiment_query = sentiment_query.filter(SentimentThreadMessage.tenant_id == current_user.tenant_id)
-    for record in sentiment_query.order_by(SentimentThreadMessage.created_at.asc()).all():
+    sentiment_records = sentiment_query.order_by(SentimentThreadMessage.created_at.asc()).all()
+    sentiment_ids = [record.id for record in sentiment_records]
+    escalation_rows = db.query(SentimentEscalation).filter(
+        SentimentEscalation.tenant_id == job.tenant_id,
+        SentimentEscalation.source_sentiment_message_id.in_(sentiment_ids or [-1]),
+    ).all()
+    escalation_by_message = {
+        row.source_sentiment_message_id: row for row in escalation_rows
+    }
+    for record in sentiment_records:
         mood = record.sentiment or "Analyzed"
         detail = record.summary or record.message
-        events.append(_event(record.created_at, "Sentiment Agent", f"Customer mood: {mood}", detail, "sentiment", source_message_id=record.source_message_id, emotion=record.emotion, confidence=record.confidence, input={"message": record.message, "source_message_id": record.source_message_id}, output={"sentiment": record.sentiment, "emotion": record.emotion, "confidence": record.confidence, "summary": record.summary}))
+        escalation = escalation_by_message.get(record.id)
+        categories = record.issue_categories or []
+        events.append(_event(
+            record.created_at,
+            "Sentiment Agent",
+            f"Customer mood: {mood}",
+            detail,
+            "sentiment",
+            message_id=str(record.id),
+            source_message_id=record.source_message_id,
+            emotion=record.emotion,
+            confidence=record.confidence,
+            urgency=record.urgency,
+            severity=record.severity,
+            issue_categories=categories,
+            requires_human=str(record.requires_human or "").lower() in {"true", "yes", "1"},
+            analysis_source=getattr(record, "analysis_source", "AI"),
+            language=getattr(record, "language", None),
+            escalation_id=escalation.id if escalation else None,
+            escalation_status=escalation.status if escalation else None,
+            escalation_owner_id=escalation.assigned_manager_id if escalation else None,
+            escalation_trigger=escalation.trigger_reason if escalation else None,
+        ))
+        if escalation:
+            events.append(_event(
+                escalation.created_at,
+                "Escalation Service",
+                "Human review requested",
+                escalation.trigger_reason or "Sentiment policy requires human review.",
+                "escalation",
+                escalation_id=escalation.id,
+                delivery_status=escalation.status.lower(),
+                recipient_id=escalation.assigned_manager_id,
+                recipient_role="dispatcher_or_tenant_admin" if escalation.assigned_manager_id else "unassigned_tenant_queue",
+                severity="CRITICAL" if "CRITICAL_SAFETY_RISK" in str(escalation.trigger_reason) else "HIGH",
+            ))
 
     events.sort(key=lambda item: item["timestamp"] or "")
     return {
@@ -263,19 +495,47 @@ def get_agent_tracking(
 ) -> dict:
     # The platform HEAD role is allowed to inspect jobs across organizations;
     # organization Super Admins remain scoped to their own tenant.
-    if current_user.role not in {UserRole.HEAD, UserRole.SUPER_ADMIN}:
+    if not _can_view_agent_tracking(current_user):
         from fastapi import HTTPException, status
 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Agent tracking is restricted to Super Admin.",
+            detail="Agent tracking is restricted to organization operators.",
         )
 
     query = db.query(Job).options(joinedload(Job.technician))
-    if current_user.role == UserRole.SUPER_ADMIN:
+    if _role_name(current_user) != "head":
         query = query.filter(Job.tenant_id == current_user.tenant_id)
     jobs = query.order_by(Job.updated_at.desc(), Job.id.desc()).limit(limit).all()
     tracked_jobs = [_track_job(job) for job in jobs]
+    job_ids = [job.id for job in jobs]
+    if job_ids:
+        sentiment_query = db.query(SentimentThreadMessage).filter(
+            SentimentThreadMessage.job_id.in_(job_ids),
+        )
+        if _role_name(current_user) != "head":
+            sentiment_query = sentiment_query.filter(
+                SentimentThreadMessage.tenant_id == current_user.tenant_id
+            )
+        sentiment_rows = sentiment_query.order_by(
+            SentimentThreadMessage.created_at.desc(),
+            SentimentThreadMessage.id.desc(),
+        ).all()
+        by_job: dict[int, list[SentimentThreadMessage]] = {}
+        for record in sentiment_rows:
+            by_job.setdefault(record.job_id, []).append(record)
+        for tracked in tracked_jobs:
+            records = by_job.get(tracked["job_id"], [])
+            sentiment_stage = next(stage for stage in tracked["stages"] if stage["key"] == "sentiment")
+            if records:
+                latest = records[0]
+                sentiment_stage["timestamp"] = _utc_iso(latest.created_at)
+                sentiment_stage["detail"] = (
+                    f"Analyzed {len(records)} customer message(s). Latest: {latest.sentiment or 'unknown'}; "
+                    f"urgency {latest.urgency or 'unknown'}, severity {latest.severity or 'unknown'}. "
+                    f"{('Human review required. ' if str(latest.requires_human or '').lower() in {'true', 'yes', '1'} else '')}"
+                    "Open the workflow to review each analysis and escalation."
+                )
 
     return {
         "jobs": tracked_jobs,

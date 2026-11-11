@@ -18,6 +18,10 @@ from .events import EMAIL, IN, PUSH, RECIPIENT_RULES, SMS, JobEvent
 
 logger = logging.getLogger(__name__)
 
+OUTBOX_MANAGED_CUSTOMER_EMAIL_EVENTS = {
+    JobEvent.TECHNICIAN_ACCEPTED,
+    JobEvent.COMPLETED,
+}
 
 @dataclass
 class Recipient:
@@ -28,6 +32,7 @@ class Recipient:
     phone: str | None = None
     email: str | None = None
     name: str | None = None
+    policy_tenant_id: str | None = None
 
 
 def _tenant_channel_on(
@@ -122,6 +127,7 @@ def _customer(
             role="customer",
             id=str(job.customer_id or f"guest-{job.id}"),
             tenant_id=str(customer_tenant_id),
+            policy_tenant_id=str(job.tenant_id),
             channels=channels,
             phone=job.contact_number,
             email=customer_email,
@@ -258,10 +264,15 @@ def resolve_recipients(
     for role, wanted in RECIPIENT_RULES.get(event, {}).items():
         if role == "customer":
             customer_wanted = list(wanted)
-            if event in {JobEvent.JOB_CREATED, JobEvent.INVOICE_READY}:
-                # These transactional customer emails are delivered by the
-                # independent database outbox; retain AI and in-app notices.
-                customer_wanted = [channel for channel in customer_wanted if channel != EMAIL]
+
+            if event in OUTBOX_MANAGED_CUSTOMER_EMAIL_EVENTS:
+                # The transactional outbox owns these customer emails.
+                # Preserve all other notification channels.
+                customer_wanted = [
+                    channel for channel in customer_wanted
+                    if channel != EMAIL
+                ]
+
             recipients.extend(_customer(db, job, customer_wanted))
 
         elif role == "technician":
@@ -293,8 +304,6 @@ def resolve_recipients(
             # RECIPIENT_RULES uses this key for platform-level HEAD recipients.
             recipients.extend(_admins(db, None, "super_admin", wanted))
 
-    # Apply each recipient's own tenant channel configuration. In-app delivery
-    # remains enabled by this filter; SMS/email obey that tenant's settings.
     seen: set[tuple[str, str, str]] = set()
     result: list[Recipient] = []
 
@@ -313,11 +322,11 @@ def resolve_recipients(
             channel
             for channel in recipient.channels
             if channel == IN
-            or _tenant_channel_on(db, recipient.tenant_id, channel)
+            or _tenant_channel_on(db, recipient.policy_tenant_id or recipient.tenant_id, channel)
         ]
         if (
             EMAIL in wanted
-            and event not in {JobEvent.JOB_CREATED, JobEvent.INVOICE_READY}
+            and event not in OUTBOX_MANAGED_CUSTOMER_EMAIL_EVENTS
             and EMAIL not in recipient.channels
         ):
             reason = (

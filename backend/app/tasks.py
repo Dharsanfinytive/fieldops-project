@@ -786,7 +786,19 @@ def process_job_status_transition_task(
                         lifecycle_event_publisher=publish_lifecycle,
                     )
 
-                await router.route(event)
+                from .services.ai.FieldOpsAI.agents.communication_agent.events import event_for_transition
+                # Versioned transitions are already handed to the
+                # Communication Agent through the event outbox. Older direct
+                # task calls (without an event version) still rely on the
+                # legacy router for delivery.
+                if event_version is None or event_for_transition(from_status, to_status) is None:
+                    await router.route(event)
+                else:
+                    logger.info(
+                        "Legacy notification router skipped mapped Communication Agent transition",
+                        extra={"job_id": str(job_pk), "old_status": from_status,
+                               "new_status": to_status, "event_version": event_version},
+                    )
 
             finally:
                 if kafka_producer is not None:
@@ -808,9 +820,7 @@ def process_job_status_transition_task(
                 # Route through the lifecycle-aware router exactly once.
                 # route_notifications_with_lifecycle() owns the Kafka producer
                 # lifecycle and invokes NotificationRouter.route(event).
-                router_task = asyncio.ensure_future(
-                    route_notifications_with_lifecycle()
-                )
+                router_task = asyncio.ensure_future(route_notifications_with_lifecycle())
 
                 def log_route_task_failure(task, pipeline):
                     if task.cancelled():
@@ -852,9 +862,7 @@ def process_job_status_transition_task(
                     )
                 )
 
-                loop.run_until_complete(
-                    route_notifications_with_lifecycle()
-                )
+                loop.run_until_complete(route_notifications_with_lifecycle())
 
         except Exception:
             logger.error(
@@ -3966,6 +3974,141 @@ def _publish_sla_event_once(
             event_id,
         )
         return False
+
+
+@celery_app.task(name="app.tasks.send_technician_job_reminders")
+def send_technician_job_reminders():
+    """Send deduplicated daily and SLA reminders until travel starts."""
+    from sqlalchemy import func
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    from .models import Job, Technician, InAppNotification, CommunicationChannelConfiguration
+    from .services.ai.FieldOpsAI.agents.communication_agent.channels import (
+        claim_delivery, enqueue_push, external_channels_enabled, push_live,
+    )
+
+    db = SessionLocal()
+    sent = 0
+    now = datetime.now(timezone.utc)
+    dialect = db.get_bind().dialect.name
+    insert = pg_insert if dialect == "postgresql" else sqlite_insert if dialect == "sqlite" else None
+    if insert is None:
+        db.close()
+        raise NotImplementedError(f"Technician reminders do not support {dialect}")
+    try:
+        active_statuses = {"ASSIGNED", "ACCEPTED", "AWAITING_ACCEPTANCE", "ACTIVE"}
+        jobs = db.query(Job).filter(
+            Job.assigned_technician_id.isnot(None),
+        ).all()
+        for job in jobs:
+            status_value = str(job.status or "").upper().replace(" ", "_")
+            if status_value not in active_statuses:
+                # In particular, EN_ROUTE means Start was pressed: stop reminders.
+                continue
+            tech = db.query(Technician).filter(
+                Technician.technician_id == job.assigned_technician_id
+            ).first()
+            if not tech or not tech.tech_id or not tech.tenant_id:
+                continue
+
+            reminders = []
+            try:
+                local_now = now.astimezone(ZoneInfo(job.preferred_service_timezone or "UTC"))
+            except Exception:
+                local_now = now
+            if 8 <= local_now.hour < 9:
+                reminders.append((
+                    f"daily_{local_now.date().isoformat()}",
+                    "Your assigned job is a priority today",
+                    f"Job #{job.id} ({job.service_type}) is still assigned to you. Please review and progress it.",
+                ))
+            deadline = job.sla_deadline
+            if deadline:
+                if deadline.tzinfo is None:
+                    deadline = deadline.replace(tzinfo=timezone.utc)
+                deadline = deadline.astimezone(timezone.utc)
+                remaining = (deadline - now).total_seconds()
+                if 3600 < remaining <= 4 * 3600:
+                    hour_bucket = int((remaining + 3599) // 3600)
+                    reminders.append((
+                        f"sla_hour_{hour_bucket}_{deadline.isoformat()}",
+                        "Prioritize this job",
+                        f"Job #{job.id} is due within about {hour_bucket} hour(s). Please prioritize completing it.",
+                    ))
+                elif remaining <= 3600:
+                    ten_min_bucket = (
+                        int((remaining + 599) // 600)
+                        if remaining >= 0
+                        else -int(abs(remaining) // 600) - 1
+                    )
+                    reminders.append((
+                        f"sla_10m_{ten_min_bucket}_{deadline.isoformat()}",
+                        "Urgent job priority reminder",
+                        f"Job #{job.id} is due within about {max(0, int((remaining + 59) // 60))} minute(s). Please prioritize it now.",
+                    ))
+
+            preferences = getattr(tech, "notification_preferences", None) or {}
+            if not preferences.get("inapp_enabled", True):
+                continue
+            for bucket, title, body in reminders:
+                notification_id = str(uuid.uuid4())
+                group_key = f"tech_job_reminder_{job.id}_{bucket}"
+                stmt = insert(InAppNotification).values(
+                    id=notification_id,
+                    tenant_id=str(tech.tenant_id),
+                    recipient_id=str(tech.tech_id),
+                    recipient_role="technician",
+                    tech_id=str(tech.tech_id),
+                    job_id=str(job.id),
+                    group_key=group_key,
+                    type="technician_job_reminder",
+                    title=title,
+                    body=body,
+                    status="UNREAD",
+                    priority="HIGH" if bucket.startswith("sla_") else "NORMAL",
+                    action_url=f"/technician/jobs/{job.id}",
+                    action_type="NAVIGATE",
+                    notification_metadata={"category": "job_reminder", "bucket": bucket},
+                    event_version=0,
+                ).on_conflict_do_nothing(
+                    index_elements=["tenant_id", "recipient_role", "recipient_id", "group_key"]
+                ).returning(InAppNotification.id)
+                persisted_id = db.execute(stmt).scalar_one_or_none()
+                if persisted_id is None:
+                    db.rollback()
+                    continue
+                db.commit()
+                push_live(
+                    "technician", str(tech.tenant_id), job.id,
+                    {"type": "notification", "id": str(persisted_id), "group_key": group_key,
+                     "job_id": str(job.id), "recipient_role": "technician",
+                     "recipient_id": str(tech.tech_id), "event": "technician_job_reminder",
+                     "event_version": 0, "title": title, "body": body,
+                     "status": "UNREAD", "notification_metadata": {"category": "job_reminder", "bucket": bucket}},
+                    correlation_id=f"tech-reminder:{tech.tenant_id}:{job.id}:{bucket}",
+                )
+                if (
+                    "push" in external_channels_enabled()
+                    and preferences.get("push_enabled", True)
+                    and tech.fcm_token
+                ):
+                    channel_config = db.query(CommunicationChannelConfiguration).filter(
+                        CommunicationChannelConfiguration.tenant_id == str(tech.tenant_id),
+                        func.lower(CommunicationChannelConfiguration.channel) == "push",
+                    ).first()
+                    if not channel_config or str(channel_config.state).upper() == "ENABLED":
+                        delivery_id = claim_delivery(
+                            db, tenant_id=str(tech.tenant_id), notification_id=str(persisted_id),
+                            channel="push", recipient_id=str(tech.tech_id),
+                            key=f"technician-reminder:{tech.tenant_id}:{job.id}:{tech.tech_id}:{bucket}:push",
+                        )
+                        db.commit()
+                        if delivery_id:
+                            enqueue_push(title, body, delivery_id)
+                sent += 1
+        return sent
+    finally:
+        db.close()
 
 
 @celery_app.task(name="app.tasks.send_customer_daily_engagement")

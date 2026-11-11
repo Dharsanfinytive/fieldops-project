@@ -66,7 +66,6 @@ TRANSITION_TO_EVENT = {
 }
 
 
-
 def _norm(status) -> str:
     s = str(getattr(status, "value", status)).upper().strip()
     if s in {"CANCELED", "CANCELLED"}:
@@ -114,27 +113,30 @@ EVENT_STEP = {
 # "technician_org_admin" only applies when the technician's organization differs
 # from the job's organization (checked in recipients.py).
 # ---------------------------------------------------------------------------
+
 RECIPIENT_RULES = {
     JobEvent.JOB_CREATED: {
-        "customer": [IN, SMS, EMAIL, PUSH],
-        "org_admin": [IN, EMAIL],
+        "customer": [IN],
+        "org_admin": [IN],
         "super_admin": [IN],
     },
     JobEvent.TECHNICIAN_ASSIGNED: {
-        "customer": [IN, EMAIL, PUSH],
-        "org_admin": [IN, EMAIL],
-        "technician_org_admin": [IN, EMAIL],
+        "customer": [IN, PUSH],
+        "technician": [IN, PUSH],
+        "org_admin": [IN],
+        "technician_org_admin": [IN],
     },
     JobEvent.TECHNICIAN_ACCEPTED: {
-        "customer": [IN, SMS, EMAIL, PUSH],
-        "org_admin": [IN, EMAIL],
-        "technician_org_admin": [IN, EMAIL],
+        "customer": [IN, PUSH, EMAIL],
+        "technician": [IN, PUSH],
+        "org_admin": [IN],
+        "technician_org_admin": [IN],
         "super_admin": [IN],
     },
     JobEvent.TECHNICIAN_REJECTED: {
         "customer": [IN, PUSH],
-        "org_admin": [IN, EMAIL],
-        "technician_org_admin": [IN, EMAIL],
+        "org_admin": [IN],
+        "technician_org_admin": [IN],
         "super_admin": [IN],
     },
     JobEvent.DELAYED: {
@@ -143,27 +145,32 @@ RECIPIENT_RULES = {
         "super_admin": [IN],
     },
     JobEvent.EN_ROUTE: {
-        "customer": [IN, SMS, EMAIL, PUSH],
+        "customer": [IN, PUSH],
+        "technician": [IN, PUSH],
         "org_admin": [IN],
+        "technician_org_admin": [IN],
         "super_admin": [IN],
     },
     JobEvent.ON_SITE: {
-        "customer": [IN, SMS, EMAIL, PUSH],
+        "customer": [IN, PUSH],
+        "technician": [IN, PUSH],
         "org_admin": [IN],
+        "technician_org_admin": [IN],
         "super_admin": [IN],
     },
     JobEvent.SERVICE_STARTED: {
-        "customer": [IN, EMAIL, PUSH],
+        "customer": [IN, PUSH],
         "org_admin": [IN],
     },
     JobEvent.COMPLETED: {
-        "customer": [IN, SMS, EMAIL, PUSH],
-        "org_admin": [IN, EMAIL],
-        "technician_org_admin": [IN, EMAIL],
+        "customer": [IN, PUSH, EMAIL],
+        "technician": [IN, PUSH],
+        "org_admin": [IN],
+        "technician_org_admin": [IN],
         "super_admin": [IN],
     },
     JobEvent.CANCELLED: {
-        "customer": [IN, SMS, EMAIL, PUSH],
+        "customer": [IN, SMS, PUSH],
         "technician": [IN],
         "org_admin": [IN, EMAIL],
         "technician_org_admin": [IN, EMAIL],
@@ -174,7 +181,7 @@ RECIPIENT_RULES = {
         "super_admin": [IN],
     },
     JobEvent.INVOICE_READY: {
-        "customer": [IN, EMAIL, PUSH],
+        "customer": [IN, PUSH],
         "org_admin": [IN],
     },
 }

@@ -195,6 +195,12 @@ class Permission(str, Enum):
     ESCALATIONS_MANAGE = "escalations:manage"
 
     # --------------------------------------------------
+    # Agent workflow tracking
+    # --------------------------------------------------
+
+    AGENT_TRACKING_VIEW = "agent_tracking:view"
+
+    # --------------------------------------------------
     # Platform
     # --------------------------------------------------
 
@@ -309,6 +315,7 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
         # Escalations
         Permission.ESCALATIONS_VIEW,
         Permission.ESCALATIONS_MANAGE,
+
     },
 
     # ==================================================
@@ -371,7 +378,7 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
         Permission.ESCALATIONS_VIEW,
         Permission.ESCALATIONS_MANAGE,
 
-        # Users can be viewed but not arbitrarily created.
+        # Users can be viewed and technicians can be provisioned.
         Permission.USERS_VIEW,
         Permission.USERS_CREATE,
     },
@@ -427,7 +434,6 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
         Permission.REPORTS_DOWNLOAD,
     },
 }
-
 
 # ======================================================
 # PERMISSION HELPERS

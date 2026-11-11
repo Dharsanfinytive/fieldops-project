@@ -424,7 +424,7 @@ export default function ProfileScreen() {
         <View pointerEvents="none" style={styles.heroOrbit} />
         <View pointerEvents="none" style={styles.heroAccent} />
         <View style={styles.heroNav}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Back to dashboard" onPress={() => router.replace("/(app)/dashboard")} style={styles.heroNavButton}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={styles.heroNavButton}>
             <Ionicons name="arrow-back" size={21} color="#FFFFFF" />
           </Pressable>
           <Text style={styles.heroNavTitle}>My Profile</Text>

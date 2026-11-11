@@ -43,11 +43,13 @@ def acknowledge_escalation(
             detail="Escalation not found",
         )
 
-    if escalation.status == "RESOLVED":
-        raise HTTPException(
-            status_code=400,
-            detail="Escalation is already resolved",
-        )
+    if escalation.status in {"ACKNOWLEDGED", "RESOLVED"}:
+        return {
+            "message": "Escalation already acknowledged",
+            "escalation_id": escalation.id,
+            "status": escalation.status,
+            "acknowledged_at": escalation.acknowledged_at,
+        }
 
     escalation.status = "ACKNOWLEDGED"
     escalation.acknowledged_at = datetime.now(timezone.utc)
@@ -82,10 +84,13 @@ def resolve_escalation(
         )
 
     if escalation.status == "RESOLVED":
-        raise HTTPException(
-            status_code=400,
-            detail="Escalation is already resolved",
-        )
+        return {
+            "message": "Escalation already resolved",
+            "escalation_id": escalation.id,
+            "status": escalation.status,
+            "resolved_at": escalation.resolved_at,
+            "resolution_notes": escalation.resolution_notes,
+        }
 
     now = datetime.now(timezone.utc)
 

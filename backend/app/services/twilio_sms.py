@@ -162,7 +162,7 @@ async def send_job_assignment_sms(
         )
     
     # Enforce delivery policy before iterating over technicians
-    repo = CommunicationConfigurationRepository(db)
+    repo = CommunicationConfigurationRepository(db, tenant_id="**platform**")
     config_service = CommunicationConfigurationService(repo, db, redis_client=redis_client)
     pref_repo = CustomerProfileRepository(db)
     pref_service = CustomerPreferenceService(pref_repo)

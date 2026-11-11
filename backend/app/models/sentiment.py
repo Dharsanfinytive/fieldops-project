@@ -102,6 +102,8 @@ class SentimentThreadMessage(Base):
     severity = Column(String(20), nullable=True)
     issue_categories = Column(JSON, nullable=False, default=list)
     recommended_action = Column(Text, nullable=True)
+    language = Column(String(10), nullable=True)
+    analysis_source = Column(String(30), nullable=False, default="AI")
     source_message_id = Column(
         String(36),
         ForeignKey("job_messages.id", ondelete="SET NULL"),
@@ -120,5 +122,5 @@ class SentimentThreadMessage(Base):
     )
 
     __table_args__ = (
-        Index("uq_sentiment_thread_source", "source_type", "source_id", unique=True),
+        Index("uq_sentiment_thread_source", "tenant_id", "source_type", "source_id", unique=True),
     )

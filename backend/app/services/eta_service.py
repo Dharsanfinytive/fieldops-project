@@ -60,7 +60,11 @@ class ETAService:
         
         latest_gps = (
             self.db.query(models.GPSPing)
-            .filter(models.GPSPing.technician_id == technician_id)
+            .filter(
+                models.GPSPing.technician_id == technician_id,
+                models.GPSPing.tenant_id == tech.tenant_id,
+                models.GPSPing.job_id == str(job_id),
+            )
             .order_by(models.GPSPing.timestamp.desc())
             .first()
         )
@@ -85,7 +89,8 @@ class ETAService:
         if ping_time.tzinfo is None:
             ping_time = ping_time.replace(tzinfo=timezone.utc)
 
-        is_stale = (now - ping_time).total_seconds() > 300
+        ping_age_seconds = (now - ping_time).total_seconds()
+        is_stale = ping_age_seconds < 0 or ping_age_seconds > 300
 
         if is_stale:
             return {

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 
 from ..database import Base
 
@@ -12,6 +12,13 @@ class RetentionWorkflow(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id = Column(String(50), nullable=False, index=True)
     customer_id = Column(String(36), nullable=False, index=True)
+    source_sentiment_message_id = Column(
+        Integer,
+        ForeignKey("sentiment_thread_messages.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
     sentiment = Column(String(30), nullable=True)
     confidence = Column(Float, nullable=True)
     message = Column(Text, nullable=True)

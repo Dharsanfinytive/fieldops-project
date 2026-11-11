@@ -13,6 +13,7 @@ import time
 from typing import Any, Optional
 
 from app.services.ai.FieldOpsAI.agents.base import BaseAgent
+from app.services.ai.FieldOpsAI.agents.sentiment_engine import SentimentEngine
 from app.services.ai.FieldOpsAI.runtime.orchestrator import (
     AIOrchestrator,
     ai_orchestrator,
@@ -53,6 +54,7 @@ class SentimentAgent(BaseAgent[SentimentDecision]):
             if orchestrator is None
             else orchestrator
         )
+        self.engine = SentimentEngine(orchestrator=self.orchestrator)
 
     async def run(
         self,
@@ -71,12 +73,7 @@ class SentimentAgent(BaseAgent[SentimentDecision]):
 
         sentiment_context = SentimentContext.model_validate(context)
 
-        decision = await asyncio.to_thread(
-            self.orchestrator.execute,
-            task=AITask.SENTIMENT,
-            context=sentiment_context.model_dump(mode="json"),
-            response_schema=SentimentDecision,
-        )
+        decision = await asyncio.to_thread(self.engine.analyze, sentiment_context)
 
         elapsed = time.perf_counter() - start_time
 
