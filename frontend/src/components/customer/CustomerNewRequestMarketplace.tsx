@@ -148,7 +148,53 @@ export default function CustomerNewRequestMarketplace({
   // LEVEL 3: ISSUES (image cards of selected category)
   // LEVEL 4: BOOKING_FORM (date, time chips, address text only, map picker, contact)
   type ViewLevel = "SERVICES" | "CATEGORIES" | "ISSUES" | "BOOKING_FORM";
-  const [viewLevel, setViewLevel] = useState<ViewLevel>("SERVICES");
+  const [viewLevel, setViewLevel] = useState<ViewLevel>(() => {
+    const savedLevel = window.history.state?.fieldOps?.bookingLevel;
+    return ["SERVICES", "CATEGORIES", "ISSUES", "BOOKING_FORM"].includes(savedLevel)
+      ? savedLevel as ViewLevel
+      : "SERVICES";
+  });
+
+  // Keep browser Back/Forward in sync with the marketplace's nested booking screens.
+  const changeViewLevel = (level: ViewLevel) => {
+    if (level === viewLevel) return;
+    window.history.pushState(
+      {
+        ...(window.history.state || {}),
+        fieldOps: {
+          ...(window.history.state?.fieldOps || {}),
+          bookingLevel: level,
+        },
+      },
+      "",
+      window.location.href,
+    );
+    setViewLevel(level);
+  };
+
+  useEffect(() => {
+    const state = window.history.state || {};
+    if (state.fieldOps?.bookingLevel !== viewLevel) {
+      window.history.replaceState(
+        {
+          ...state,
+          fieldOps: { ...(state.fieldOps || {}), bookingLevel: viewLevel },
+        },
+        "",
+        window.location.href,
+      );
+    }
+    const handleBookingPopState = (event: PopStateEvent) => {
+      const level = event.state?.fieldOps?.bookingLevel;
+      if (["SERVICES", "CATEGORIES", "ISSUES", "BOOKING_FORM"].includes(level)) {
+        setViewLevel(level as ViewLevel);
+      }
+    };
+    window.addEventListener("popstate", handleBookingPopState);
+    return () => window.removeEventListener("popstate", handleBookingPopState);
+    // Initialize history once for this marketplace instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [selectedServiceType, setSelectedServiceType] = useState<TaxonomyServiceType | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<TaxonomyCategory | null>(null);
@@ -333,7 +379,7 @@ export default function CustomerNewRequestMarketplace({
     setSelectedServiceType(sType);
     setSelectedCategory(null);
     setSelectedIssue("");
-    setViewLevel("CATEGORIES");
+    changeViewLevel("CATEGORIES");
   };
 
   // Helper to check if a specific issue is actively offered by organizations
@@ -365,7 +411,7 @@ export default function CustomerNewRequestMarketplace({
     setSelectedCategory(cat);
     setSelectedIssue("");
     setIssueFilter("ALL");
-    setViewLevel("ISSUES");
+    changeViewLevel("ISSUES");
   };
 
   // Handle selecting an issue: Active issues proceed to Booking, Inactive issues trigger Unavailable modal
@@ -379,7 +425,7 @@ export default function CustomerNewRequestMarketplace({
     setPreferredTimeSlot("");
     setSubmissionSuccess(null);
     setSubmitError(null);
-    setViewLevel("BOOKING_FORM");
+    changeViewLevel("BOOKING_FORM");
   };
 
   // Handle Search Submission in Hero Banner
@@ -411,7 +457,7 @@ export default function CustomerNewRequestMarketplace({
         setSelectedServiceType(matchedType);
         setSelectedCategory(matchedCat || matchedType.categories[0]);
         setSelectedIssue(matchingItem.issue);
-        setViewLevel("BOOKING_FORM");
+        changeViewLevel("BOOKING_FORM");
         setSubmissionSuccess(null);
         setSubmitError(null);
         return;
@@ -1009,7 +1055,7 @@ export default function CustomerNewRequestMarketplace({
               >
                 <button
                   type="button"
-                  onClick={() => setViewLevel("SERVICES")}
+                  onClick={() => window.history.back()}
                   style={{
                     background: "#0F172A",
                     border: "none",
@@ -1394,7 +1440,7 @@ export default function CustomerNewRequestMarketplace({
               >
                 <button
                   type="button"
-                  onClick={() => setViewLevel("CATEGORIES")}
+                  onClick={() => window.history.back()}
                   style={{
                     background: "#0F172A",
                     border: "none",
@@ -1761,7 +1807,7 @@ export default function CustomerNewRequestMarketplace({
               >
                 <button
                   type="button"
-                  onClick={() => setViewLevel("ISSUES")}
+                  onClick={() => window.history.back()}
                   disabled={submitting}
                   style={{
                     background: "#0F172A",
@@ -1842,7 +1888,7 @@ export default function CustomerNewRequestMarketplace({
 
                     <button
                       type="button"
-                      onClick={() => setViewLevel("ISSUES")}
+                      onClick={() => window.history.back()}
                       style={{
                         background: "#FFFFFF",
                         border: "1px solid #059669",
@@ -2362,7 +2408,7 @@ export default function CustomerNewRequestMarketplace({
                   >
                     <button
                       type="button"
-                      onClick={() => setViewLevel("ISSUES")}
+                      onClick={() => window.history.back()}
                       disabled={submitting}
                       style={{
                         padding: "12px 22px",
@@ -2430,7 +2476,7 @@ export default function CustomerNewRequestMarketplace({
           }}
           onClick={() => {
             setSubmissionSuccess(null);
-            setViewLevel("SERVICES");
+            changeViewLevel("SERVICES");
           }}
         >
           <div
@@ -2451,7 +2497,7 @@ export default function CustomerNewRequestMarketplace({
               type="button"
               onClick={() => {
                 setSubmissionSuccess(null);
-                setViewLevel("SERVICES");
+                changeViewLevel("SERVICES");
               }}
               aria-label="Close"
               style={{
@@ -2592,7 +2638,7 @@ export default function CustomerNewRequestMarketplace({
                 type="button"
                 onClick={() => {
                   setSubmissionSuccess(null);
-                  setViewLevel("SERVICES");
+                  changeViewLevel("SERVICES");
                 }}
                 style={{
                   width: "100%",

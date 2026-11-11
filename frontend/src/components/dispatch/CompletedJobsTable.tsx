@@ -12,6 +12,7 @@ interface CompletedJob {
   service_type?: string;
   preferred_service_date?: string | null;
   completed_at?: string | null;
+  closed_at?: string | null;
   status?: string;
 }
 interface CompletedJobsTableProps {
@@ -85,7 +86,7 @@ export default function CompletedJobsTable({
   return;
 }
       const response = await getJobs({
-  status: "COMPLETED",
+  status: "COMPLETED_OR_CLOSED",
   search: filters.search.trim() || undefined,
   location: filters.location.trim() || undefined,
   priority:
@@ -106,7 +107,7 @@ export default function CompletedJobsTable({
       const rows: CompletedJob[] = Array.isArray(response?.data)
         ? response.data.filter(
             (job: CompletedJob) =>
-              normalizeStatus(job.status) === "COMPLETED",
+              ["COMPLETED", "CLOSED"].includes(normalizeStatus(job.status)),
           )
         : [];
 
@@ -457,9 +458,9 @@ export default function CompletedJobsTable({
                           </p>
                           <p>
                             Completed at:{" "}
-                            {job.completed_at
+                            {job.completed_at || job.closed_at
                               ? new Date(
-                                  job.completed_at,
+                                  job.completed_at || job.closed_at || "",
                                 ).toLocaleString()
                               : "Completion time not available"}
                           </p>

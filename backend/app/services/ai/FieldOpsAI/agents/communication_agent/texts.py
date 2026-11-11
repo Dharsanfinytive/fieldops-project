@@ -15,22 +15,25 @@ def strip_emoji(text: str) -> str:
 
 
 def tracking_link(job) -> str | None:
-    """Public tracking link built from Job.share_token. Needs FRONTEND_BASE_URL in .env."""
+    """Public tracking link built from a job's share token and configured frontend URL."""
     base = os.getenv("FRONTEND_BASE_URL", "").rstrip("/")
     token = getattr(job, "share_token", None)
     if not base or not token:
         return None
-    expires = getattr(job, "share_expires", None)
+    expires = (
+        getattr(job, "share_token_expires_at", None)
+        or getattr(job, "share_expires", None)
+    )
     if expires:
         try:
-            dt = datetime.fromisoformat(expires)
+            dt = expires if isinstance(expires, datetime) else datetime.fromisoformat(str(expires))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             if dt < datetime.now(timezone.utc):
                 return None
-        except ValueError:
+        except (TypeError, ValueError):
             return None
-    return f"{base}/track/{token}"          # placeholder route: match your frontend
+    return f"{base}/track/{token}"
 
 
 def sms_text(title: str, body: str, link: str | None) -> str:

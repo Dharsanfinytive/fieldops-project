@@ -811,6 +811,13 @@ async def create_technician_profile(
 
         logger.warning(f"Could not auto-sync technician record: {sync_err}")
 
+    provisioned_user = db.query(User).filter(
+        User.id == current_user.user_id,
+        User.tenant_id == current_user.tenant_id,
+    ).first()
+    if provisioned_user:
+        provisioned_user.phone_number = profile.mobile_number
+
     audit_log(
 
         db,
@@ -1006,6 +1013,13 @@ async def update_technician_profile(
     except Exception as sync_err:
 
         logger.warning(f"Could not auto-sync technician record on update: {sync_err}")
+
+    provisioned_user = db.query(User).filter(
+        User.id == current_user.user_id,
+        User.tenant_id == current_user.tenant_id,
+    ).first()
+    if provisioned_user:
+        provisioned_user.phone_number = profile.mobile_number
 
     audit_log(
 
@@ -1685,6 +1699,25 @@ async def accept_job(
             ),
         )
 
+    # Serialize workload changes and enforce the product limit of five
+    # accepted, unfinished jobs per technician.
+    locked_tech = (
+        db.query(Technician)
+        .filter(Technician.technician_id == tech.technician_id)
+        .with_for_update()
+        .first()
+    )
+    if callable(getattr(db, "get_bind", None)):
+        from ..workload_utils import count_accepted_open_jobs
+        accepted_open_count = count_accepted_open_jobs(db, tech.technician_id)
+    else:
+        accepted_open_count = 0
+    if not locked_tech or accepted_open_count >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Maximum workload reached (5/5)",
+        )
+
     # Idempotency: repeated clicks / retries must not double-count workload
 
     # or resume the dispatcher a second time.
@@ -1713,17 +1746,9 @@ async def accept_job(
 
     # toward technician workload.
 
-    from ..workload_utils import update_workload_count
-
-    update_workload_count(
-
-        db,
-
-        tech.technician_id,
-
-        1,
-
-    )
+    if callable(getattr(db, "get_bind", None)):
+        from ..workload_utils import reconcile_workload_count
+        reconcile_workload_count(db, tech.technician_id)
 
     # ---------------------------------------------------------
 
@@ -1837,7 +1862,9 @@ async def accept_job(
         db,
         job,
         current_user.user_id,
-        f"Automatic job update from {tech.technician_name}: I’ve accepted job #{job.id} for {job.service_type}. I’ll update you here when I’m on my way.",
+        f"Hi, I’m {tech.technician_name}, your technician for job #{job.id} ({job.service_type}). "
+        f"You can reach me at {tech.phone_number or 'the number on your service request'}. "
+        f"I’m with {(getattr(getattr(tech, 'organization', None), 'name', None) or 'your service provider')}.",
     )
 
 
@@ -1851,6 +1878,9 @@ async def accept_job(
 
     # ---------------------------------------------------------
 
+    from ..services.email.transactional_outbox import persist_booking_email
+    if callable(getattr(db, "get_bind", None)):
+        persist_booking_email(db, job)
     db.commit()
 
     if automatic_chat_message is not None:
@@ -2952,6 +2982,12 @@ async def complete_job(
     if service_request:
 
         service_request.status = "COMPLETED"
+
+    # Completing an accepted job frees one workload slot. Completion retries
+    # return above, so this reconciliation runs once after request sync.
+    if callable(getattr(db, "get_bind", None)):
+        from ..workload_utils import reconcile_workload_count
+        reconcile_workload_count(db, tech.technician_id)
 
     job.completed_at = datetime.now(timezone.utc)
 

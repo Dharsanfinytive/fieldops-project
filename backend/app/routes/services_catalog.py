@@ -14,10 +14,9 @@ from sqlalchemy import desc, func
 
 from ..database import get_db
 from ..models import ServiceCatalogItem
+from ..models.user import User
 from fastapi import Request
 from fastapi.security import HTTPAuthorizationCredentials
-from ..models.user import User
-from ..auth.rbac import UserRole
 from ..auth.dependencies import get_current_user, AuthenticatedUser, security
 
 
@@ -28,36 +27,28 @@ async def get_service_admin_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
 ) -> AuthenticatedUser:
-    """
-    Resilient auth dependency for Super Admin services.
-    Falls back cleanly to organization admin if token is in transition,
-    preventing 401 hard redirects.
-    """
-    try:
-        if credentials or request.cookies.get("fieldops_access_token"):
-            return await get_current_user(request=request, credentials=credentials, db=db)
-    except Exception:
-        pass
-
-    # Fallback to the first active admin/super_admin user in database
-    admin = db.query(User).filter(User.role.in_(["super_admin", "admin", "head"])).first()
-    if admin:
-        return AuthenticatedUser(
-            user_id=admin.id,
-            tenant_id=admin.tenant_id or "tenant-1",
-            role=UserRole.SUPER_ADMIN,
-            jti="fallback-jti",
-        )
-
-    return AuthenticatedUser(
-        user_id="default-admin",
-        tenant_id="tenant-1",
-        role=UserRole.SUPER_ADMIN,
-        jti="fallback-jti",
+    """Authenticate the caller; never substitute an administrator identity."""
+    return await get_current_user(
+        request=request,
+        credentials=credentials,
+        db=db,
     )
 
 
 router = APIRouter(tags=["Services Catalog"])
+
+
+def require_service_writer(
+    current_user: AuthenticatedUser = Depends(get_service_admin_user),
+) -> AuthenticatedUser:
+    """Only organization administrators can change the service catalog."""
+    role = getattr(current_user.role, "value", current_user.role)
+    if str(role).lower() not in {"super_admin", "admin", "head"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Super Admins can create or change services.",
+        )
+    return current_user
 
 
 class ServiceCatalogCreateRequest(BaseModel):
@@ -162,6 +153,16 @@ def get_admin_services(
     if current_user.tenant_id != "__platform__":
         query = query.filter(ServiceCatalogItem.tenant_id == current_user.tenant_id)
 
+    role = getattr(current_user.role, "value", current_user.role)
+    if str(role).strip().lower() == "dispatcher":
+        query = query.join(
+            User,
+            ServiceCatalogItem.created_by_user_id == User.id,
+        ).filter(
+            User.tenant_id == current_user.tenant_id,
+            User.role == "super_admin",
+        )
+
     if service_type and service_type != "ALL":
         query = query.filter(ServiceCatalogItem.service_type == service_type)
 
@@ -187,7 +188,11 @@ def get_taxonomy_suggestions(
     Allows Org B to pick known service types, categories, and issues
     (e.g. from Org A or platform catalog) without duplicate typing.
     """
-    all_items = db.query(ServiceCatalogItem).all()
+    query = db.query(ServiceCatalogItem)
+    role = getattr(current_user.role, "value", current_user.role)
+    if str(role).lower() == "dispatcher":
+        query = query.filter(ServiceCatalogItem.tenant_id == current_user.tenant_id)
+    all_items = query.all()
 
     # Collect unique service types
     types_set = set()
@@ -231,7 +236,7 @@ def get_taxonomy_suggestions(
 )
 def create_admin_service(
     payload: ServiceCatalogCreateRequest,
-    current_user: AuthenticatedUser = Depends(get_service_admin_user),
+    current_user: AuthenticatedUser = Depends(require_service_writer),
     db: Session = Depends(get_db),
 ):
     """
@@ -295,7 +300,7 @@ def create_admin_service(
 )
 def create_admin_services_batch(
     payload: ServiceCatalogBatchCreateRequest,
-    current_user: AuthenticatedUser = Depends(get_service_admin_user),
+    current_user: AuthenticatedUser = Depends(require_service_writer),
     db: Session = Depends(get_db),
 ):
     """
@@ -357,7 +362,7 @@ def create_admin_services_batch(
 @router.patch("/api/admin/services/{service_id}/toggle-active", response_model=ServiceCatalogResponse)
 def toggle_service_active(
     service_id: int,
-    current_user: AuthenticatedUser = Depends(get_service_admin_user),
+    current_user: AuthenticatedUser = Depends(require_service_writer),
     db: Session = Depends(get_db),
 ):
     """
@@ -383,7 +388,7 @@ def toggle_service_active(
 @router.delete("/api/admin/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_admin_service(
     service_id: int,
-    current_user: AuthenticatedUser = Depends(get_service_admin_user),
+    current_user: AuthenticatedUser = Depends(require_service_writer),
     db: Session = Depends(get_db),
 ):
     """

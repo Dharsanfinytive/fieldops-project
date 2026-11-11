@@ -14,6 +14,8 @@ import {
   Key,
   Save,
   Lock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import useAuthStore from "../store/authStore";
 import api from "../services/api";
@@ -58,6 +60,7 @@ interface OrganizationItem {
   max_technicians: number;
   contact_email: string | null;
   user_count?: number;
+  dispatcher_count?: number;
   created_at: string;
 }
 
@@ -132,8 +135,10 @@ export default function ProfilePage() {
   );
   const [userEmail, setUserEmail] = useState("");
   const [userPassword, setUserPassword] = useState("");
+  const [showUserPassword, setShowUserPassword] = useState(false);
   const [userFirstName, setUserFirstName] = useState("");
   const [userLastName, setUserLastName] = useState("");
+  const [userMobileNumber, setUserMobileNumber] = useState("");
   const [userRole, setUserRole] = useState("dispatcher");
   const [isSubmittingUser, setIsSubmittingUser] = useState(false);
 
@@ -144,9 +149,18 @@ export default function ProfilePage() {
 
   const isSuperAdmin = user?.role === "super_admin";
   const isAdmin = user?.role === "admin" || isSuperAdmin;
+  const canManageOrganizationsTab = isAdmin && !isSuperAdmin;
   const isDispatcher = user?.role === "dispatcher";
+  const selectedOrganization = orgs.find((org) => org.id === selectedOrgId);
+  const selectedOrganizationHasDispatcher = (selectedOrganization?.dispatcher_count || 0) > 0;
   const mfaSupportedRoles = ["technician", "dispatcher", "admin", "super_admin"];
   const canUseMFA = mfaSupportedRoles.includes((user?.role || "").toLowerCase());
+
+  useEffect(() => {
+    if (userRole === "dispatcher" && selectedOrganizationHasDispatcher) {
+      setUserRole("technician");
+    }
+  }, [selectedOrganizationHasDispatcher, userRole]);
 
   useEffect(() => {
     if (user) {
@@ -475,6 +489,15 @@ export default function ProfilePage() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (userRole === "dispatcher" && selectedOrganizationHasDispatcher) {
+      addPopToast("error", "This organization already has a dispatcher. Only one dispatcher is allowed per organization.");
+      setUserRole("technician");
+      return;
+    }
+    if (!/^\d{10}$/.test(userMobileNumber)) {
+      addPopToast("error", "Enter a mobile number with exactly 10 digits.");
+      return;
+    }
     setIsSubmittingUser(true);
 
     const targetOrgId = selectedOrgId || user?.tenant_id || "tenant-1";
@@ -485,6 +508,7 @@ export default function ProfilePage() {
         password: userPassword,
         first_name: userFirstName,
         last_name: userLastName,
+        phone_number: userMobileNumber,
         role: userRole,
       });
 
@@ -496,7 +520,8 @@ export default function ProfilePage() {
       setUserPassword("");
       setUserFirstName("");
       setUserLastName("");
-      fetchOrganizations();
+      setUserMobileNumber("");
+      await fetchOrganizations();
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       const msg =
@@ -720,7 +745,7 @@ export default function ProfilePage() {
           <User size={14} /> Profile & Edit
         </button>
 
-        {isAdmin && (
+        {canManageOrganizationsTab && (
           <button
             onClick={() => setActiveTab("orgs")}
             style={{
@@ -1618,7 +1643,7 @@ export default function ProfilePage() {
       )}
 
       {/* Tab 2: Organizations Creation & List */}
-      {activeTab === "orgs" && isAdmin && (
+      {activeTab === "orgs" && canManageOrganizationsTab && (
         <div
           style={{
             flex: 1,
@@ -1960,6 +1985,7 @@ export default function ProfilePage() {
 
           <form
             onSubmit={handleCreateUser}
+            autoComplete="off"
             style={{ display: "flex", flexDirection: "column", gap: "10px" }}
           >
             <div>
@@ -2089,6 +2115,8 @@ export default function ProfilePage() {
               </label>
               <input
                 type="email"
+                name="provision-user-email"
+                autoComplete="off"
                 placeholder="newadmin@organization.com"
                 value={userEmail}
                 onChange={(e) => setUserEmail(e.target.value)}
@@ -2117,14 +2145,20 @@ export default function ProfilePage() {
                   marginBottom: "3px",
                 }}
               >
-                Password * (min 8 chars, upper, lower, digit, special)
+                Mobile Number * (10 digits)
               </label>
               <input
-                type="password"
-                placeholder="SecurePass@123"
-                value={userPassword}
-                onChange={(e) => setUserPassword(e.target.value)}
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel-national"
+                placeholder="10-digit mobile number"
+                value={userMobileNumber}
+                onChange={(e) => setUserMobileNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
                 required
+                minLength={10}
+                maxLength={10}
+                pattern="[0-9]{10}"
+                title="Enter exactly 10 digits"
                 style={{
                   width: "100%",
                   padding: "7px 10px",
@@ -2137,6 +2171,63 @@ export default function ProfilePage() {
                   boxSizing: "border-box",
                 }}
               />
+            </div>
+
+            <div>
+              <label
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: "#2F4F3E",
+                  display: "block",
+                  marginBottom: "3px",
+                }}
+              >
+                Password * (min 8 chars, upper, lower, digit, special)
+              </label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showUserPassword ? "text" : "password"}
+                  name="provision-user-password"
+                  autoComplete="new-password"
+                  placeholder="Create a password"
+                  value={userPassword}
+                  onChange={(e) => setUserPassword(e.target.value)}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: "7px 36px 7px 10px",
+                    border: "1px solid #E3ECE7",
+                    borderRadius: "7px",
+                    fontSize: "12px",
+                    background: "#F9FAF9",
+                    color: "#2F4F3E",
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowUserPassword((visible) => !visible)}
+                  aria-label={showUserPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showUserPassword}
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    right: "9px",
+                    transform: "translateY(-50%)",
+                    display: "grid",
+                    placeItems: "center",
+                    padding: 2,
+                    border: 0,
+                    background: "transparent",
+                    color: "#5C9470",
+                    cursor: "pointer",
+                  }}
+                >
+                  {showUserPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
             </div>
 
             <div>
@@ -2184,9 +2275,16 @@ export default function ProfilePage() {
                   boxSizing: "border-box",
                 }}
               >
-                <option value="dispatcher">Dispatcher</option>
+                <option value="dispatcher" disabled={selectedOrganizationHasDispatcher}>
+                  {selectedOrganizationHasDispatcher ? "Dispatcher (already assigned)" : "Dispatcher"}
+                </option>
                 <option value="technician">Technician</option>
               </select>
+            )}
+            {selectedOrganizationHasDispatcher && !isDispatcher && (
+              <p style={{ margin: "5px 0 0", color: "#9A3412", fontSize: "11px" }}>
+                This organization already has a dispatcher. Only one dispatcher is allowed per organization.
+              </p>
             )}
             </div>
 

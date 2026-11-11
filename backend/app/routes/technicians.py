@@ -17,6 +17,132 @@ router = APIRouter(
     tags=["Technicians"]
 )
 
+
+def _normalized_contact_name(value: Optional[str]) -> str:
+    """Normalize names only for legacy technician/profile linking."""
+    return " ".join((value or "").split()).casefold()
+
+
+def _attach_technician_contact_details(
+    db: Session,
+    technicians: list,
+    tenant_id: str,
+) -> None:
+    """Attach profile-owned contact details to technician API records.
+
+    TechnicianProfile is linked to User through user_id.
+    Match by account ID first, then by unique full name for legacy records.
+    """
+    if not technicians:
+        return
+
+    technician_users = db.query(models.User).filter(
+        models.User.tenant_id == tenant_id,
+        func.lower(models.User.role) == "technician",
+        models.User.deleted_at.is_(None),
+    ).all()
+
+    profile_rows = db.query(models.TechnicianProfile, models.User).join(
+        models.User,
+        models.User.id == models.TechnicianProfile.user_id,
+    ).filter(
+        models.TechnicianProfile.tenant_id == tenant_id,
+        models.User.tenant_id == tenant_id,
+        func.lower(models.User.role) == "technician",
+        models.User.deleted_at.is_(None),
+    ).all()
+
+    users_by_id = {
+        str(user.id): user for user in technician_users
+    }
+
+    profiles_by_user_id = {
+        str(profile.user_id): profile
+        for profile, _user in profile_rows
+    }
+
+    users_by_name = {}
+    profiles_by_name = {}
+
+    for user in technician_users:
+        name = _normalized_contact_name(user.full_name)
+        if name:
+            users_by_name.setdefault(name, []).append(user)
+
+    for profile, user in profile_rows:
+        name = _normalized_contact_name(profile.full_name)
+        if name:
+            profiles_by_name.setdefault(name, []).append((profile, user))
+
+    for technician in technicians:
+
+        # First try the direct User ID relationship.
+        user = (
+            users_by_id.get(str(technician.tech_id))
+            if technician.tech_id
+            else None
+        )
+
+        profile = (
+            profiles_by_user_id.get(str(user.id))
+            if user
+            else None
+        )
+
+        # Legacy fallback: match only when the name is unique.
+        if user is None:
+            name = _normalized_contact_name(
+                technician.technician_name
+            )
+
+            matching_profiles = profiles_by_name.get(name, [])
+
+            if len(matching_profiles) == 1:
+                profile, user = matching_profiles[0]
+
+            else:
+                matching_users = users_by_name.get(name, [])
+
+                if len(matching_users) == 1:
+                    user = matching_users[0]
+                    profile = profiles_by_user_id.get(str(user.id))
+
+        profile_mobile = (
+            profile.mobile_number.strip()
+            if profile
+            and profile.mobile_number
+            and profile.mobile_number.strip()
+            else None
+        )
+
+        account_mobile = (
+            user.phone_number.strip()
+            if user
+            and user.phone_number
+            and user.phone_number.strip()
+            else None
+        )
+
+        legacy_mobile = (
+            technician.phone_number.strip()
+            if technician.phone_number
+            and technician.phone_number.strip()
+            else None
+        )
+
+        contact_mobile = (
+            profile_mobile
+            or account_mobile
+            or legacy_mobile
+        )
+
+        # Return both field names for frontend compatibility.
+        technician.phone_number = contact_mobile
+        technician.mobile_number = contact_mobile
+        technician.email = (
+            user.email if user and user.email else None
+        )
+
 @router.post("", response_model=Union[schemas.TechnicianResponse, List[schemas.TechnicianResponse]], status_code=status.HTTP_200_OK)
 def create_technician(
     technician: Union[schemas.TechnicianCreate, List[schemas.TechnicianCreate]],
@@ -141,7 +267,23 @@ def get_all_technicians(
         if page and limit:
             query = query.offset((page - 1) * limit).limit(limit)
             
-        return query.all()
+        technicians = query.all()
+        # Technician profile data is the current contact source. Match by account
+        # ID first, then by a unique profile/user name for older technician rows
+        # that predate linked tech IDs.
+        _attach_technician_contact_details(
+            db,
+            technicians,
+            current_user.tenant_id
+        )
+        # The persisted counter may contain legacy assignment-based values.
+        # Workload is the number of accepted jobs that remain unfinished.
+        from ..workload_utils import count_accepted_open_jobs
+        for technician in technicians:
+            technician.current_jobs = count_accepted_open_jobs(
+                db, technician.technician_id
+            )
+        return technicians
     except SQLAlchemyError as e:
         raise HTTPException(
             status_code=500,
@@ -163,9 +305,10 @@ def get_technician_workload(technician_id: int,
     if not tech:
         raise HTTPException(status_code=404, detail="Technician not found")
     
+    from ..workload_utils import count_accepted_open_jobs
     return {
         "technician": tech.technician_name,
-        "current_jobs": tech.current_jobs,
+        "current_jobs": count_accepted_open_jobs(db, technician_id),
         "status": tech.technician_status
     }
 
@@ -255,6 +398,8 @@ def validate_technician_workload_api(
     if not tech:
         raise HTTPException(status_code=404, detail="Technician not found")
         
+    from ..workload_utils import count_accepted_open_jobs
+    tech.current_jobs = count_accepted_open_jobs(db, technician_id)
     return get_workload_validation_status(tech)
 
 
@@ -284,16 +429,18 @@ def get_available_technicians(
         techs = query.all()
     
     result = []
+    from ..workload_utils import count_accepted_open_jobs
     for tech in techs:
-        is_eligible = (tech.current_jobs < tech.max_jobs) and ((tech.technician_status or "").upper() in ["AVAILABLE", "ASSIGNED"])
+        current_jobs = count_accepted_open_jobs(db, tech.technician_id)
+        is_eligible = (current_jobs < min(tech.max_jobs or 5, 5)) and ((tech.technician_status or "").upper() in ["AVAILABLE", "ASSIGNED"])
         result.append({
             "technician_id": tech.technician_id,
             "technician": tech.technician_name,
             "skill": tech.technician_skill,
             "location": tech.technician_location,
             "status": tech.technician_status,
-            "current_jobs": tech.current_jobs or 0,
-            "max_jobs": tech.max_jobs or 5,
+            "current_jobs": current_jobs,
+            "max_jobs": min(tech.max_jobs or 5, 5),
             "eligible_for_assignment": is_eligible
         })
         
@@ -343,6 +490,13 @@ def get_technician_by_id(
     ).first()
     if not tech:
         raise HTTPException(status_code=404, detail="Technician not found")
+
+    _attach_technician_contact_details(
+        db,
+        [tech],
+        current_user.tenant_id
+    )
+
     return tech
 
 

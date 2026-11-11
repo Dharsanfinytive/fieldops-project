@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Text, View, Pressable, ActivityIndicator, ScrollView } from "react-native";
+import { Alert, BackHandler, Platform, Text, View, Pressable, ActivityIndicator, ScrollView, Image } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,8 +10,16 @@ import type { CustomerProfile, LocationSearchResult, ServiceCatalogItem, Service
 import { colors } from "../theme";
 import { formatDate } from "../utils/format";
 import { consumePickedServiceLocation } from "../utils/locationSelection";
+import { SERVICE_CATALOGUE_TAXONOMY, type TaxonomyServiceType } from "../data/serviceCatalogueTaxonomy";
+import { getCategoryCardImage, getIssueCardImage } from "../data/categoryImages";
 
 const priorities = ["LOW", "MEDIUM", "HIGH", "CRITICAL", "URGENT"] as const;
+const SERVICE_ASSETS_URL = "https://raw.githubusercontent.com/ryeswanthkumar/fieldops-project/feature/current-work/frontend/public";
+
+function mobileCategoryImage(categoryId: string, serviceTypeId: string): string {
+  const image = getCategoryCardImage(categoryId, serviceTypeId);
+  return image.startsWith("/") ? `${SERVICE_ASSETS_URL}${image}` : image;
+}
 
 function localDateKey(date: Date): string {
   const year = date.getFullYear();
@@ -142,6 +150,33 @@ function matchesHomeCategory(
   return serviceText.includes(category);
 }
 
+function matchesTaxonomyType(item: ServiceCatalogItem, type: TaxonomyServiceType): boolean {
+  const normalize = (value?: string) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const itemType = normalize(item.service_type);
+  const typeName = normalize(type.name);
+  const typeId = normalize(type.id);
+  if (itemType === typeName || itemType === typeId || itemType.includes(typeId) || typeName.includes(itemType)) return true;
+  const itemCategory = normalize(item.category);
+  return type.categories.some((category) => {
+    const categoryName = normalize(category.name);
+    const categoryId = normalize(category.id);
+    return itemCategory === categoryName || itemCategory === categoryId || itemCategory.includes(categoryName) || categoryName.includes(itemCategory);
+  });
+}
+
+function findCatalogIssue(items: ServiceCatalogItem[], type: TaxonomyServiceType, category: string, issue: string): ServiceCatalogItem | undefined {
+  const normalize = (value?: string) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const issueName = normalize(issue);
+  return items.find((item) => {
+    const itemCategory = normalize(item.category);
+    const requestedCategory = normalize(category);
+    const categoryMatches = !itemCategory || itemCategory === requestedCategory || itemCategory.includes(requestedCategory) || requestedCategory.includes(itemCategory);
+    const itemIssue = normalize(item.issue);
+    const issueMatches = itemIssue === issueName || itemIssue.includes(issueName) || issueName.includes(itemIssue);
+    return categoryMatches && issueMatches && matchesTaxonomyType(item, type);
+  });
+}
+
 export default function ServiceRequestForm({ requestId }: { requestId?: number }) {
   const editing = typeof requestId === "number";
   const [catalog, setCatalog] = useState<ServiceCatalogItem[]>([]);
@@ -172,6 +207,7 @@ export default function ServiceRequestForm({ requestId }: { requestId?: number }
   const [locationSearchBusy, setLocationSearchBusy] = useState(false);
   const [locationSearchError, setLocationSearchError] = useState("");
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [taxonomyBrowseLevel, setTaxonomyBrowseLevel] = useState<"categories" | "issues">("categories");
   const { serviceType: serviceTypeParam } =
     useLocalSearchParams<{
       serviceType?: string | string[];
@@ -236,6 +272,7 @@ export default function ServiceRequestForm({ requestId }: { requestId?: number }
       setError("");
     }, []),
   );
+
   useEffect(() => {
     if (editing || !showLocationSuggestions || location.trim().length < 2) {
       setLocationResults([]);
@@ -267,19 +304,42 @@ const homeCategoryName = (
     ? serviceTypeParam[0]
     : serviceTypeParam
 )?.trim() || "";
+const homeTaxonomy = SERVICE_CATALOGUE_TAXONOMY.find((type) => type.id === homeCategoryName || type.name === homeCategoryName) || null;
 
 const visibleCatalog = useMemo(
   () =>
     catalog.filter(
       (item) =>
         item.is_active !== false &&
-        matchesHomeCategory(
-          item,
-          homeCategoryName,
-        ),
+        (homeTaxonomy ? matchesTaxonomyType(item, homeTaxonomy) : matchesHomeCategory(item, homeCategoryName)),
     ),
-  [catalog, homeCategoryName],
+  [catalog, homeCategoryName, homeTaxonomy],
 );
+
+  // Treat the form's internal screens as real navigation history on Android.
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") return;
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (step === 3) {
+          setError("");
+          setStep(2);
+          return true;
+        }
+        if (step === 2) {
+          setError("");
+          setStep(1);
+          return true;
+        }
+        if (homeTaxonomy && taxonomyBrowseLevel === "issues") {
+          setTaxonomyBrowseLevel("categories");
+          return true;
+        }
+        return false;
+      });
+      return () => subscription.remove();
+    }, [homeTaxonomy, step, taxonomyBrowseLevel]),
+  );
 
   const types = useMemo(
     () =>
@@ -326,7 +386,9 @@ const visibleCatalog = useMemo(
 
   const categories = useMemo(
     () =>
-      Array.from(
+      homeTaxonomy && !editing
+        ? homeTaxonomy.categories.map((entry) => entry.name)
+        : Array.from(
         new Set(
           visibleCatalog
             .filter(
@@ -336,17 +398,22 @@ const visibleCatalog = useMemo(
             .filter(Boolean),
         ),
       ),
-    [visibleCatalog, serviceType],
+    [visibleCatalog, serviceType, homeTaxonomy, editing],
   );
 
   const issues = useMemo(
     () =>
-      visibleCatalog.filter(
+      homeTaxonomy && !editing
+        ? (homeTaxonomy.categories.find((entry) => entry.name === category)?.issues || []).map((issueName, index) => {
+            const item = findCatalogIssue(visibleCatalog, homeTaxonomy, category, issueName);
+            return item || { id: -(index + 1), service_type: homeTaxonomy.name, category, issue: issueName, is_active: false } as ServiceCatalogItem;
+          })
+        : visibleCatalog.filter(
         (item) =>
           item.service_type === serviceType &&
           item.category === category,
       ),
-    [visibleCatalog, serviceType, category],
+    [visibleCatalog, serviceType, category, homeTaxonomy, editing],
   );
 
   useEffect(() => {
@@ -825,7 +892,7 @@ const visibleCatalog = useMemo(
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 18, gap: 17 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <Pressable accessibilityRole="button" accessibilityLabel={step === 1 ? "Go back" : "Previous step"} onPress={() => step === 1 ? router.back() : setStep((step - 1) as 1 | 2 | 3)} style={{ width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border }}><Ionicons name="arrow-back" size={21} color={colors.brand} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={step === 1 ? "Go back" : "Previous step"} onPress={() => step === 1 ? homeTaxonomy && taxonomyBrowseLevel === "issues" ? setTaxonomyBrowseLevel("categories") : router.back() : setStep((step - 1) as 1 | 2 | 3)} style={{ width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border }}><Ionicons name="arrow-back" size={21} color={colors.brand} /></Pressable>
           <View style={{ width: 42, height: 42, borderRadius: 14, backgroundColor: colors.brandSoft, alignItems: "center", justifyContent: "center" }}><Ionicons name="construct" size={25} color={colors.brand} /></View>
           <View style={{ gap: 1, flex: 1 }}><Text style={{ color: colors.brand, fontSize: 20, fontWeight: "900", letterSpacing: -0.5 }}>FieldOps</Text><Text style={{ color: colors.muted, fontSize: 11, fontWeight: "600" }}>Customer</Text></View>
         </View>
@@ -867,16 +934,28 @@ const visibleCatalog = useMemo(
 
             {!editing ? <>
               <View style={{ gap: 9 }}>
-                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900" }}>Category</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{categories.map((value) => <Pressable key={value} onPress={() => chooseCategory(value)} style={{ backgroundColor: category === value ? colors.brand : "#FFFFFF", borderWidth: 1, borderColor: category === value ? colors.brand : colors.border, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 10 }}><Text style={{ color: category === value ? "#FFFFFF" : colors.muted, fontWeight: "700", fontSize: 12 }}>{value}</Text></Pressable>)}</View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  {homeTaxonomy && taxonomyBrowseLevel === "issues" ? <Pressable accessibilityRole="button" accessibilityLabel="Back to categories" onPress={() => setTaxonomyBrowseLevel("categories")}><Ionicons name="arrow-back-circle" size={25} color={colors.brand} /></Pressable> : null}
+                  <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900", flex: 1 }}>{homeTaxonomy && taxonomyBrowseLevel === "issues" ? category : "Category"}</Text>
+                </View>
+                {homeTaxonomy && taxonomyBrowseLevel === "categories" ? <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 10 }}>{homeTaxonomy.categories.map((entry) => {
+                  const activeCount = entry.issues.filter((issueName) => findCatalogIssue(visibleCatalog, homeTaxonomy, entry.name, issueName)).length;
+                  const selected = category === entry.name;
+                  return <Pressable key={entry.id} onPress={() => { chooseCategory(entry.name); setTaxonomyBrowseLevel("issues"); }} style={{ width: "48.5%", borderRadius: 14, overflow: "hidden", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: selected ? colors.brand : colors.border }}><Image source={{ uri: mobileCategoryImage(entry.id, homeTaxonomy.id) }} style={{ width: "100%", height: 84 }} resizeMode="cover" /><View style={{ padding: 9, gap: 4 }}><Text style={{ color: colors.text, fontSize: 12, lineHeight: 16, fontWeight: "800" }}>{entry.name}</Text><Text style={{ color: colors.muted, fontSize: 10 }}>{activeCount ? `${activeCount} services` : "Explore issues"}</Text></View></Pressable>;
+                })}</View> : !homeTaxonomy ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{categories.map((value) => <Pressable key={value} onPress={() => chooseCategory(value)} style={{ backgroundColor: category === value ? colors.brand : "#FFFFFF", borderWidth: 1, borderColor: category === value ? colors.brand : colors.border, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 10 }}><Text style={{ color: category === value ? "#FFFFFF" : colors.muted, fontWeight: "700", fontSize: 12 }}>{value}</Text></Pressable>)}</View> : null}
               </View>
-              <View style={{ gap: 9 }}>
-                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900" }}>Choose an issue</Text>
-                <View style={{ gap: 9 }}>{issues.map((item) => <Pressable key={item.id} accessibilityRole="radio" accessibilityState={{ checked: issue === item.issue }} onPress={() => chooseIssue(item.issue)} style={{ padding: 13, borderRadius: 15, borderWidth: 1.2, borderColor: issue === item.issue ? colors.brandMid : colors.border, backgroundColor: issue === item.issue ? colors.brandSoft : "#FFFFFF", flexDirection: "row", alignItems: "center", gap: 11 }}>
-                  <Ionicons name={issue === item.issue ? "radio-button-on" : "radio-button-off"} size={21} color={issue === item.issue ? colors.brandMid : colors.muted} />
-                  <View style={{ flex: 1, gap: 4 }}><Text style={{ color: colors.text, fontSize: 13, fontWeight: "800", lineHeight: 18 }}>{item.issue}</Text>{item.description ? <Text style={{ color: colors.muted, fontSize: 12, lineHeight: 17 }} numberOfLines={2}>{item.description}</Text> : null}</View>
-                </Pressable>)}</View>
-              </View>
+              {(!homeTaxonomy || taxonomyBrowseLevel === "issues") ? <View style={{ gap: 9 }}>
+                {!homeTaxonomy ? <Text style={{ color: colors.text, fontSize: 15, fontWeight: "900" }}>Choose an issue</Text> : null}
+                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 10 }}>{issues.map((item, index) => {
+                  const active = item.is_active !== false;
+                  const selected = issue === item.issue;
+                  const taxonomyCategory = homeTaxonomy?.categories.find((entry) => entry.name === category);
+                  return <Pressable key={`${item.id}-${item.issue}`} accessibilityRole="radio" accessibilityState={{ checked: selected, disabled: !active }} onPress={() => { if (!active) { Alert.alert("Service unavailable", `${item.issue} is not currently offered. Please choose another issue.`); return; } chooseIssue(item.issue); if (homeTaxonomy) { setError(""); setStep(2); } }} style={{ width: "48.5%", borderRadius: 15, borderWidth: 1.2, borderColor: selected ? colors.brandMid : colors.border, backgroundColor: selected ? colors.brandSoft : "#FFFFFF", overflow: "hidden", opacity: active ? 1 : 0.52 }}>
+                    {homeTaxonomy && taxonomyCategory ? <Image source={{ uri: getIssueCardImage(item.issue, taxonomyCategory.id, homeTaxonomy.id, index) }} style={{ width: "100%", height: 96 }} resizeMode="cover" /> : null}
+                    <View style={{ gap: 5, padding: 10 }}><View style={{ flexDirection: "row", alignItems: "flex-start", gap: 5 }}><Text style={{ flex: 1, color: colors.text, fontSize: 12, fontWeight: "800", lineHeight: 16 }}>{item.issue}</Text><Ionicons name={selected ? "checkmark-circle" : active ? "chevron-forward" : "lock-closed"} size={16} color={selected ? colors.brandMid : colors.muted} /></View>{item.description ? <Text style={{ color: colors.muted, fontSize: 11, lineHeight: 15 }} numberOfLines={3}>{item.description}</Text> : null}<Text style={{ color: active ? colors.brandMid : colors.muted, fontSize: 10, fontWeight: "700" }}>{active ? "Available" : "Currently unavailable"}</Text></View>
+                  </Pressable>;
+                })}</View>
+              </View> : null}
             </> : null}
 
             <Field label="Request title (optional)" value={title} onChangeText={setTitle} placeholder="e.g. AC not cooling" maxLength={200} />
@@ -937,7 +1016,7 @@ const visibleCatalog = useMemo(
       </ScrollView>
 
       <View style={{ paddingHorizontal: 18, paddingTop: 10, paddingBottom: 12, gap: 9, backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.border }}>
-        {step === 1 ? <AppButton title="Continue to location" icon="arrow-forward" onPress={continueToLocation} disabled={!serviceType || !category || !issue} /> : null}
+        {step === 1 && !homeTaxonomy ? <AppButton title="Continue to location" icon="arrow-forward" onPress={continueToLocation} disabled={!serviceType || !category || !issue} /> : null}
         {step === 2 ? <View style={{ flexDirection: "row", gap: 10 }}><AppButton title="Back" icon="arrow-back" kind="secondary" onPress={() => { setError(""); setStep(1); }} style={{ flex: 1 }} /><AppButton title="Review request" icon="arrow-forward" onPress={continueToReview} style={{ flex: 1.35 }} /></View> : null}
         {step === 3 ? <><AppButton title="Submit service request" icon="checkmark-circle-outline" onPress={() => void submit()} loading={saving} /><AppButton title="Back to location" kind="ghost" onPress={() => { setError(""); setStep(2); }} /></> : null}
         <Text style={{ color: colors.muted, fontSize: 11, fontWeight: "600", textAlign: "center" }}>Step {step} of 3</Text>

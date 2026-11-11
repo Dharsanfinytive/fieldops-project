@@ -118,6 +118,8 @@ class JobResponse(BaseModel):
     assigned_technician_id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
     tenant_id: Optional[str] = None
     customer_tenant_id: Optional[str] = None
     sla_deadline: Optional[datetime] = None
@@ -187,6 +189,10 @@ class TechnicianResponse(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     last_ping: Optional[datetime] = None
+    phone_number: Optional[str] = None
+    mobile_number: Optional[str] = None
+    email: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 

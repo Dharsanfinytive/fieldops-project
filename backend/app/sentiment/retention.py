@@ -47,13 +47,22 @@ class RetentionWorkflowService:
 
     def create_workflow(self, *, tenant_id: str, customer_id: str, sentiment: str | None = None,
                         confidence: float | None = None, message: str | None = None,
-                        customer_lifetime_value: float = 0) -> RetentionWorkflow | None:
+                        customer_lifetime_value: float = 0,
+                        source_sentiment_message_id: int | None = None) -> RetentionWorkflow | None:
+        if source_sentiment_message_id is not None:
+            existing = self.db.query(RetentionWorkflow).filter(
+                RetentionWorkflow.tenant_id == tenant_id,
+                RetentionWorkflow.source_sentiment_message_id == source_sentiment_message_id,
+            ).first()
+            if existing:
+                return existing
         trigger = self.detect_trigger(sentiment, confidence, message)
         if trigger is None:
             return None
         branch = self.branch_workflow(confidence, customer_lifetime_value)
         workflow = RetentionWorkflow(
             tenant_id=tenant_id, customer_id=customer_id, sentiment=sentiment,
+            source_sentiment_message_id=source_sentiment_message_id,
             confidence=confidence, message=message, customer_lifetime_value=customer_lifetime_value,
             trigger_type=trigger["trigger_type"], **branch,
         )

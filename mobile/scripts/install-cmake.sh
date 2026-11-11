@@ -36,14 +36,14 @@ if [ "$LICENSE_STATUS" -ne 0 ]; then
   exit "$LICENSE_STATUS"
 fi
 
-echo "Installing CMake 3.31.6..."
+echo "Installing CMake 3.22.1..."
 
-"$SDKMANAGER" --sdk_root="$SDK_ROOT" "cmake;3.31.6"
+"$SDKMANAGER" --sdk_root="$SDK_ROOT" "cmake;3.22.1"
 
 echo "Verifying CMake installation..."
 
-test -x "$SDK_ROOT/cmake/3.31.6/bin/cmake"
+test -x "$SDK_ROOT/cmake/3.22.1/bin/cmake"
 
-"$SDK_ROOT/cmake/3.31.6/bin/cmake" --version
+"$SDK_ROOT/cmake/3.22.1/bin/cmake" --version
 
-echo "CMake 3.31.6 installation completed successfully."
+echo "CMake 3.22.1 installation completed successfully."

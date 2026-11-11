@@ -58,6 +58,14 @@ class SentimentEscalation(Base):
         index=True,
     )
 
+    source_sentiment_message_id = Column(
+        Integer,
+        ForeignKey("sentiment_thread_messages.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
     customer_name = Column(
         String(200),
         nullable=False,

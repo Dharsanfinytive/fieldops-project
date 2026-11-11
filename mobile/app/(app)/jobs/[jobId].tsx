@@ -1027,7 +1027,7 @@ export default function JobDetailScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
-              onPress={() => router.replace(openedFromHistory ? "/(app)/history" : "/(app)/jobs")}
+              onPress={() => router.back()}
               style={({ pressed }) => [
                 styles.backButton,
                 pressed && styles.pressed

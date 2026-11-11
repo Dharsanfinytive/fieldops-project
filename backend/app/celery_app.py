@@ -198,6 +198,11 @@ celery_app.conf.update(
             "schedule": 1800.0,
         },
 
+        "send-technician-job-reminders-every-10-minutes": {
+            "task": "app.tasks.send_technician_job_reminders",
+            "schedule": 600.0,
+        },
+
         "broadcast-sla-countdown-every-30-seconds": {
             "task": "app.tasks.broadcast_sla_countdown",
             "schedule": 30.0,

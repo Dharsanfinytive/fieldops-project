@@ -6,10 +6,10 @@ export interface PublicJobDetails {
   issue_description: string;
   service_type: string;
   status: string;
-  site_latitude: number;
-  site_longitude: number;
+  site_latitude: number | null;
+  site_longitude: number | null;
   site_address: string;
-  scheduled_window: string;
+  scheduled_window: string | null;
 }
 
 export interface PublicTechnicianDetails {
@@ -47,7 +47,8 @@ export const useCustomerTrackingStore = create<CustomerTrackingState>((set) => (
   fetchTrackingInfo: async (token: string) => {
     set({ loading: true, error: null });
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/track/${token}`);
+      const apiBase = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
+      const response = await fetch(`${apiBase}/api/v1/track/${encodeURIComponent(token)}`);
       if (!response.ok) {
         if (response.status === 404) {
           set({ expired: true, error: 'Tracking link not found', loading: false });

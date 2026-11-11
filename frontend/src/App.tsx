@@ -13,7 +13,6 @@ import {
   BellRing,
   LogOut,
   History,
-  Settings,
   PlusCircle,
   FileText,
   Navigation,
@@ -59,6 +58,8 @@ import LoadingSpinner from "./components/ui/LoadingSpinner";
 import TechnicianLocationTracker from "./components/technician/TechnicianLocationTracker";
 import TechnicianAvailabilityLocation from "./components/technician/TechnicianAvailabilityLocation";
 import CustomerSupportWidget from "./components/customer/CustomerSupportWidget";
+import { getFieldOperationsSettings } from "./services/organizationSettingsService";
+import { useTechnicianGpsStore } from "./store/technicianGpsStore";
 
 // Lazy load page components
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -613,6 +614,24 @@ function AppInner() {
   const isDispatcher =
     userRole === "dispatcher";
 
+  useEffect(() => {
+    if (!isTechnician || !user?.tenant_id) return;
+    let active = true;
+    getFieldOperationsSettings()
+      .then((settings) => {
+        if (active) {
+          useTechnicianGpsStore.getState().setMaxAgeSeconds(settings.location_freshness_seconds);
+        }
+      })
+      .catch(() => {
+        // Keep the safe 120-second default if tenant settings cannot be loaded.
+      });
+    return () => {
+      active = false;
+      useTechnicianGpsStore.getState().setMaxAgeSeconds(120);
+    };
+  }, [isTechnician, user?.tenant_id]);
+
   const isSuperAdmin =
     userRole === "super_admin" ||
     userRole === "admin" ||
@@ -757,6 +776,21 @@ function AppInner() {
     }
     if (targetTab === activeTab) return;
 
+    window.history.pushState(
+      {
+        ...(window.history.state || {}),
+        fieldOps: {
+          ...(window.history.state?.fieldOps || {}),
+          tab: targetTab,
+          ...(targetTab === "cust_create_request"
+            ? { bookingLevel: "SERVICES" }
+            : {}),
+        },
+      },
+      "",
+      window.location.href,
+    );
+
     setIsNavigating(true);
     setActiveTab(targetTab);
 
@@ -764,6 +798,34 @@ function AppInner() {
       setIsNavigating(false);
     }, 400);
   };
+
+  // Keep browser Back/Forward aligned with the application's tab navigation.
+  useEffect(() => {
+    const state = window.history.state || {};
+    window.history.replaceState(
+      {
+        ...state,
+        fieldOps: {
+          ...(state.fieldOps || {}),
+          tab: activeTab,
+        },
+      },
+      "",
+      window.location.href,
+    );
+
+    const handlePopState = (event: PopStateEvent) => {
+      const previousTab = event.state?.fieldOps?.tab;
+      if (typeof previousTab === "string") {
+        setActiveTab(previousTab);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+    // Initialize the current browser entry once; tab changes add their own entries.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const getLoadingMessage = (
     tab: string,
@@ -1300,9 +1362,7 @@ function AppInner() {
             supportRequestId,
           );
 
-          setActiveTab(
-            "customer_support",
-          );
+          handleTabChange("customer_support");
 
           setIsNavigating(true);
           setIsNotificationDrawerOpen(
@@ -1569,8 +1629,8 @@ function AppInner() {
 
             <button
         type="button"
-        aria-label="Open profile and settings"
-        title="Open Profile & Settings"
+        aria-label={isTechnician ? "Open profile and settings" : "Open profile"}
+        title={isTechnician ? "Open Profile & Settings" : "Open Profile"}
         onClick={() =>
           handleTabChange(
             isTechnician
@@ -2528,7 +2588,7 @@ function AppInner() {
                 </span>
               </button>
 
-              {isSuperAdmin && (
+              {(isSuperAdmin || isDispatcher) && (
                 <button
                   className="nav-item-style"
                   style={getItemStyle("services")}
@@ -3211,8 +3271,8 @@ function AppInner() {
                 />
               )}
 
-              {activeTab === "services" && (
-                <SuperAdminServicesPage />
+              {activeTab === "services" && (isSuperAdmin || isDispatcher) && (
+                <SuperAdminServicesPage readOnly={isDispatcher} />
               )}
               {activeTab ===
                 "cust_settings" && (

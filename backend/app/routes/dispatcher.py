@@ -59,6 +59,8 @@ async def get_dispatchers(
             "is_on_duty": user.is_on_duty,
             "phone_number": user.phone_number,
             "last_login": user.last_login,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
         }
         for user, organization_name in dispatchers
     ]

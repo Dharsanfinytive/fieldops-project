@@ -117,12 +117,17 @@ class SentimentDecision(BaseModel):
 
     issue_categories: list[Literal[
         "TECHNICIAN_DELAY",
+        "SERVICE_DELAY",
         "TECHNICIAN_BEHAVIOR",
         "SERVICE_QUALITY",
         "COMMUNICATION",
+        "SUPPORT_NON_RESPONSE",
         "SCHEDULING",
         "PRICING_BILLING",
+        "PAYMENT",
         "UNRESOLVED_ISSUE",
+        "REPEATED_COMPLAINT",
+        "EQUIPMENT_DAMAGE",
         "SAFETY",
         "GENERAL_FEEDBACK",
         "OTHER",
@@ -150,4 +155,9 @@ class SentimentDecision(BaseModel):
         default=None,
         max_length=500,
         description="Suggested next step for a human operator; never execute automatically.",
+    )
+
+    analysis_source: Literal["AI", "KEYWORD_FALLBACK"] = Field(
+        default="AI",
+        description="Identifies whether the decision came from the AI provider or deterministic fallback rules.",
     )

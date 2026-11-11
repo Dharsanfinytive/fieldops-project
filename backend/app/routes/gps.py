@@ -2519,9 +2519,13 @@ async def update_technician_availability_location(
     if reported_at.tzinfo is None:
         reported_at = reported_at.replace(tzinfo=timezone.utc)
     age_seconds = (now - reported_at.astimezone(timezone.utc)).total_seconds()
-    # Keep this aligned with the frontend VITE_GPS_AVAILABILITY_MAX_ACCURACY_METERS.
-    # 150 m is a configurable starting value; dispatch eligibility filters
-    # remain independently enforced by the dispatch services.
+    organization = db.query(models.Organization).filter(
+        models.Organization.id == str(current_user.tenant_id)
+    ).first()
+    field_operations = ((organization.settings or {}).get("field_operations") or {}) if organization else {}
+    freshness_seconds = int(field_operations.get("location_freshness_seconds", 120))
+    # Accuracy remains a deployment-level limit. Freshness can be tightened
+    # by each organization through its operational settings.
     max_accuracy = float(os.getenv("GPS_AVAILABILITY_MAX_ACCURACY_METERS", "150"))
     logger.info(
         "GPS availability location validation",
@@ -2534,11 +2538,11 @@ async def update_technician_availability_location(
             "threshold_meters": max_accuracy,
         },
     )
-    if age_seconds < -30 or age_seconds > 120:
+    if age_seconds < -30 or age_seconds > freshness_seconds:
         logger.warning("GPS availability location rejected", extra={"event": "gps_availability_rejected", "reason": "stale_timestamp", "age_seconds": round(age_seconds, 3)})
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="GPS timestamp must be current (within the last 120 seconds)",
+            detail=f"GPS timestamp must be current (within the last {freshness_seconds} seconds)",
         )
 
     if not (

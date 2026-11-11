@@ -30,7 +30,6 @@ import {
   useAcceptanceCountdowns,
 } from "../../hooks/useAcceptanceCountdown";
 import {
-  TECHNICIAN_GPS_MAX_AGE_MS,
   isValidTechnicianGpsFix,
   useTechnicianGpsStore,
 } from "../../store/technicianGpsStore";
@@ -230,6 +229,7 @@ export default function TechnicianPortalDashboard({
   const technicianGpsLocation = useTechnicianGpsStore(
     (state) => state.location,
   );
+  const technicianGpsMaxAgeMs = useTechnicianGpsStore((state) => state.maxAgeMs);
   const [gpsFreshnessNow, setGpsFreshnessNow] = useState(Date.now());
   const dismissedOfferIds = useRef(new Set<number>());
 
@@ -414,7 +414,7 @@ export default function TechnicianPortalDashboard({
     if (!assignedOffer || !technicianGpsLocation) return;
 
     const expiresAt =
-      technicianGpsLocation.fix.timestamp + TECHNICIAN_GPS_MAX_AGE_MS;
+      technicianGpsLocation.fix.timestamp + technicianGpsMaxAgeMs;
     const staleInMs = expiresAt - Date.now() + 1;
     if (staleInMs <= 0) return;
 
@@ -423,7 +423,7 @@ export default function TechnicianPortalDashboard({
       staleInMs,
     );
     return () => window.clearTimeout(timer);
-  }, [assignedOffer, technicianGpsLocation]);
+  }, [assignedOffer, technicianGpsLocation, technicianGpsMaxAgeMs]);
 
   const dismissAssignedOffer = () => {
     if (assignedOffer) {

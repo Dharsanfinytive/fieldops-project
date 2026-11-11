@@ -29,6 +29,7 @@ You receive structured information including:
 - Parts used
 - Work duration
 - Customer confirmation (optional)
+- Prior Sentiment Agent concerns for this tenant and job (optional)
 
 Only use the supplied information.
 
@@ -88,6 +89,9 @@ Only if:
 - Waiting for spare parts
 - Issue remains unresolved
 - Customer requested a callback
+- A prior customer concern is marked critical or unresolved and has no recorded resolution outcome
+
+When prior sentiment concerns are supplied, carry them into the follow-up recommendation. Treat them as signals for a human to verify with the customer. You must not approve/reject closure, change job status, assign anyone, or claim the concern is resolved.
 
 Otherwise:
 

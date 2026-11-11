@@ -30,7 +30,7 @@ android {
     // Use the newer CMake installed through Android Studio SDK Manager.
     externalNativeBuild {
         cmake {
-            version "3.31.6"
+            version "3.22.1"
         }
     }
 

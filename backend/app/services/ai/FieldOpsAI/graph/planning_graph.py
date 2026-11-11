@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from langgraph.graph import StateGraph, START, END
 
 from app.database import SessionLocal
+from app.services.dispatch_eligibility import LOCATION_MAX_AGE_SECONDS
 from app.models import Organization, Technician
 from app.services.ola_map_client import haversine_distance
 from app.redis_client import get_redis_client
@@ -413,6 +414,11 @@ def find_nearest_organizations_node(
                     "site_latitude": org_lat,
                     "site_longitude": org_lng,
                     "distance_km": round(distance, 2),
+                    "location_freshness_seconds": int(
+                        ((getattr(org, "settings", None) or {}).get("field_operations") or {}).get(
+                            "location_freshness_seconds", min(LOCATION_MAX_AGE_SECONDS, 120)
+                        )
+                    ),
                 }
             )
 
@@ -602,6 +608,7 @@ def find_and_rank_technicians_node(
                         job_tenant_id=None,
                         redis_client=redis_client,
                         fallback_location=fallback_location,
+                        location_max_age_seconds=int(org.get("location_freshness_seconds", 120)),
                     ) or {}
                 except Exception:
                     logger.exception(

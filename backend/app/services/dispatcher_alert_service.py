@@ -173,6 +173,10 @@ class DispatcherAlertService:
         sentiment: str,
         confidence: float,
         alert_reason: str = "negative_high_confidence",
+        urgency: str = "LOW",
+        severity: str = "LOW",
+        issue_categories: list[str] | None = None,
+        source_sentiment_message_id: int | None = None,
     ):
         """
         Create and broadcast an alert for negative customer sentiment.
@@ -184,8 +188,36 @@ class DispatcherAlertService:
         The alert_reason identifies why the alert was triggered.
         """
 
-        if sentiment != "NEGATIVE" or confidence <= 0.8:
+        safety_risk = (
+            str(urgency).upper() == "CRITICAL"
+            or str(severity).upper() == "CRITICAL"
+            or "SAFETY" in (issue_categories or [])
+        )
+        if not safety_risk and not (
+            alert_reason == "positive_to_negative_shift"
+            or (sentiment == "NEGATIVE" and confidence > 0.8)
+        ):
             return None
+        alert_severity = "CRITICAL" if safety_risk else (
+            str(severity or "LOW").upper()
+            if str(severity or "LOW").upper() in {"HIGH", "CRITICAL"}
+            else "HIGH"
+        )
+
+        source_marker = (
+            f"sentiment_message:{source_sentiment_message_id}:{alert_reason}"
+            if source_sentiment_message_id is not None
+            else None
+        )
+        if source_marker:
+            existing = db.query(DispatcherAlert).filter(
+                DispatcherAlert.job_id == job.id,
+                DispatcherAlert.tenant_id == job.tenant_id,
+                DispatcherAlert.type == "customer_sentiment",
+                DispatcherAlert.recommended_action == source_marker,
+            ).first()
+            if existing:
+                return existing
 
         alert_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
@@ -194,12 +226,12 @@ class DispatcherAlertService:
             id=alert_id,
             tenant_id=job.tenant_id,
             type="customer_sentiment",
-            severity="CRITICAL",
+            severity=alert_severity,
             job_id=job.id,
             attempt_count=job.attempt_count or 0,
             max_attempts=5,
             excluded_technicians=[],
-            recommended_action=alert_reason,
+            recommended_action=source_marker or alert_reason,
             acknowledged=0,
             created_at=now,
         )
@@ -224,6 +256,10 @@ class DispatcherAlertService:
             "sentiment": sentiment,
             "confidence": confidence,
             "alert_reason": alert_reason,
+            "urgency": str(urgency).upper(),
+            "severity": alert_severity,
+            "issue_categories": issue_categories or [],
+            "sentiment_message_id": source_sentiment_message_id,
             "recommended_action": alert_reason,
             "created_at": now.isoformat(),
             "acknowledged": False,
@@ -248,6 +284,7 @@ class DispatcherAlertService:
                 await sio.emit(
                     "sentiment:alert",
                     payload,
+                    room=f"tenant:{job.tenant_id}:dispatchers",
                 )
 
                 logger.info(

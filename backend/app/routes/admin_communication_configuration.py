@@ -30,7 +30,7 @@ def get_config_service(
     db: Session = Depends(get_db),
     redis_client=Depends(get_redis_client),
 ) -> CommunicationConfigurationService:
-    repository = CommunicationConfigurationRepository(db)
+    repository = CommunicationConfigurationRepository(db, tenant_id="**platform**")
     return CommunicationConfigurationService(
         repository,
         db,

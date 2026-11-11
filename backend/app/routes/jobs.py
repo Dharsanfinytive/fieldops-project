@@ -18,6 +18,7 @@ from app.models import (
     InAppNotification,
     JobPaymentStatus,
     CustomerFeedback,
+    SentimentThreadMessage,
 )
 from app.services.ai.FieldOpsAI.agents.dispatcher_agent.dispatcher_runtime import (
     get_dispatcher_runtime,
@@ -630,9 +631,6 @@ def create_job(
 
         db.add(new_job)
         db.flush()
-        if new_job.customer_id or new_job.customer_email:
-            from app.services.email.transactional_outbox import persist_booking_email
-            persist_booking_email(db, new_job)
         db.commit()
         db.refresh(new_job)
         # The booking notification uses a persisted event version and runs
@@ -914,6 +912,11 @@ def get_jobs(
                     normalized_job_status == "ENROUTE"
                 )
 
+            elif normalized_input == "COMPLETEDORCLOSED":
+                query = query.filter(
+                    normalized_job_status.in_(["COMPLETED", "CLOSED"])
+                )
+
             elif normalized_input in {"CANCELLED", "CANCELED"}:
                 query = query.filter(
                     normalized_job_status.in_(
@@ -1027,8 +1030,51 @@ def get_jobs(
         query = query.order_by(Job.id.desc())
         if page and limit:
             query = query.offset((page - 1) * limit).limit(limit)
-            
-        return query.all()
+
+        jobs = query.all()
+        jobs_missing_completion_time = [
+            job
+            for job in jobs
+            if not getattr(job, "completed_at", None)
+            and not getattr(job, "closed_at", None)
+            and (job.status or "").strip().upper().replace(" ", "").replace("_", "").replace("-", "")
+            in {"COMPLETED", "CLOSED"}
+        ]
+        completion_times_by_job_id = {}
+        if jobs_missing_completion_time:
+            completion_times_by_job_id = dict(
+                db.query(
+                    JobClosure.job_id,
+                    func.max(JobClosure.completed_at),
+                )
+                .filter(
+                    JobClosure.tenant_id == tenant_id,
+                    JobClosure.job_id.in_(
+                        [job.id for job in jobs_missing_completion_time]
+                    ),
+                )
+                .group_by(JobClosure.job_id)
+                .all()
+            )
+
+        response_jobs = []
+        for job in jobs:
+            job_values = {}
+            for field_name in JobResponse.model_fields:
+                if hasattr(job, field_name):
+                    value = getattr(job, field_name)
+                    if field_name == "preferred_service_date" and isinstance(value, datetime):
+                        value = value.date()
+                    job_values[field_name] = value
+            response_job = JobResponse.model_validate(job_values)
+            closure_completion_time = completion_times_by_job_id.get(job.id)
+            if closure_completion_time:
+                response_job = response_job.model_copy(
+                    update={"completed_at": closure_completion_time}
+                )
+            response_jobs.append(response_job)
+
+        return response_jobs
     except HTTPException:
         raise
     except Exception as error:
@@ -1730,8 +1776,15 @@ def accept_job(
         # -----------------------------------------------------
 
         try:
+            if job.customer_id or job.customer_email:
+                from app.services.email.transactional_outbox import persist_booking_email
+
+                persist_booking_email(db, job)
+
             db.commit()
             db.refresh(job)
+
+
 
         except Exception:
             db.rollback()
@@ -4361,10 +4414,11 @@ def share_job_tracking(
 
     import os
 
-    base_url = os.getenv(
-        "FRONTEND_URL",
-        "http://localhost:5173",
-    )
+    base_url = (
+        os.getenv("FRONTEND_BASE_URL")
+        or os.getenv("FRONTEND_URL")
+        or "http://localhost:5173"
+    ).rstrip("/")
 
     return {
         "token": token,
@@ -4381,6 +4435,7 @@ def get_public_tracking_info(
     from datetime import datetime, timezone
     from app.models import Technician, GPSPing
     from app.services.eta_service import ETAService
+    from app.services.ola_map_client import OlaMapsClient
     import asyncio
 
     job = db.query(Job).filter(Job.share_token == token).first()
@@ -4410,16 +4465,35 @@ def get_public_tracking_info(
         Technician.tenant_id == job.tenant_id,
     ).first()
         if tech:
-            ping = db.query(GPSPing).filter(GPSPing.technician_id == tech.tech_id).order_by(GPSPing.timestamp.desc()).first()
+            ping = (
+                db.query(GPSPing)
+                .filter(
+                    GPSPing.technician_id == tech.tech_id,
+                    GPSPing.tenant_id == tech.tenant_id,
+                    GPSPing.job_id == str(job.id),
+                )
+                .order_by(GPSPing.timestamp.desc())
+                .first()
+            )
             if ping:
-                latest_gps = {
-                    "latitude": ping.latitude,
-                    "longitude": ping.longitude,
-                    "timestamp": ping.timestamp.isoformat() if ping.timestamp else None
-                }
+                ping_time = ping.timestamp
+                if ping_time and ping_time.tzinfo is None:
+                    ping_time = ping_time.replace(tzinfo=timezone.utc)
+                ping_age_seconds = (now - ping_time).total_seconds() if ping_time else None
+                if ping_age_seconds is not None and 0 <= ping_age_seconds <= 300:
+                    latest_gps = {
+                        "latitude": ping.latitude,
+                        "longitude": ping.longitude,
+                        "timestamp": ping.timestamp.isoformat(),
+                    }
             
             try:
-                eta_service = ETAService()
+                redis_client = get_redis_client()
+                maps_client = OlaMapsClient(redis_client)
+                try:
+                    eta_service = ETAService()
+                except TypeError:
+                    eta_service = ETAService(db, redis_client, maps_client)
                 loop = asyncio.new_event_loop()
                 try:
                     eta_result = loop.run_until_complete(
@@ -4427,8 +4501,9 @@ def get_public_tracking_info(
                     )
                     if eta_result and "duration" in eta_result:
                         eta_minutes = int(eta_result["duration"] / 60)
-                    elif eta_result and "last_known_location" in eta_result:
-                        # Haversine estimation or default fallback
+                    elif eta_result and eta_result.get("duration_minutes") is not None:
+                        eta_minutes = round(eta_result["duration_minutes"])
+                    elif eta_result and eta_result.get("last_known_location"):
                         eta_minutes = 25
                 finally:
                     loop.close()
@@ -4449,10 +4524,15 @@ def get_public_tracking_info(
             "issue_description": job.issue_description,
             "service_type": job.service_type,
             "status": job.status.upper(),
-            "site_latitude": job.site_latitude or 13.0827,
-            "site_longitude": job.site_longitude or 80.2707,
+            "site_latitude": job.site_latitude,
+            "site_longitude": job.site_longitude,
             "site_address": job.site_address or job.location,
-            "scheduled_window": "2:00 PM - 4:00 PM"
+            "scheduled_window": (
+                f"{job.preferred_service_date.isoformat()}"
+                + (f" at {job.preferred_service_time.strftime('%I:%M %p').lstrip('0')}" if getattr(job, "preferred_service_time", None) else "")
+                + (f" ({job.preferred_service_timezone})" if getattr(job, "preferred_service_timezone", None) else "")
+                if getattr(job, "preferred_service_date", None) else None
+            )
         },
         "technician": tech_info,
         "latest_gps": latest_gps,
@@ -4517,6 +4597,35 @@ async def generate_job_closure_summary(
     )
     from app.services.ai.FieldOpsAI.schemas.closure import ClosureContext
 
+    sentiment_rows = (
+        db.query(SentimentThreadMessage)
+        .filter(
+            SentimentThreadMessage.job_id == job.id,
+            SentimentThreadMessage.tenant_id == str(current_user.tenant_id),
+        )
+        .order_by(SentimentThreadMessage.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    sentiment_concerns = []
+    for record in sentiment_rows:
+        categories = [str(value).replace("_", " ").lower() for value in (record.issue_categories or [])]
+        critical = (
+            str(record.urgency or "").upper() == "CRITICAL"
+            or str(record.severity or "").upper() == "CRITICAL"
+            or "safety" in categories
+        )
+        unresolved = "unresolved issue" in categories or "repeated complaint" in categories
+        if critical or unresolved or str(record.sentiment or "").upper() in {"NEGATIVE", "MIXED"}:
+            sentiment_concerns.append(
+                (
+                    f"Customer concern: {record.summary or 'Customer expressed a concern.'} "
+                    f"Sentiment={record.sentiment or 'unknown'}, urgency={record.urgency or 'unknown'}, "
+                    f"severity={record.severity or 'unknown'}, issues={', '.join(categories) or 'unspecified'}. "
+                    "No resolution outcome is recorded; verify with the customer before finalizing closure."
+                )[:1000]
+            )
+
     context = ClosureContext(
         customer_name=job.customer_name,
         technician_name=technician.technician_name,
@@ -4525,6 +4634,7 @@ async def generate_job_closure_summary(
         parts_used=payload.parts_used,
         duration_minutes=payload.duration_minutes,
         customer_confirmation=payload.customer_confirmation,
+        sentiment_concerns=sentiment_concerns,
     )
     decision = await ClosureIntegration().generate_async(
         context=context.model_dump(mode="json"),

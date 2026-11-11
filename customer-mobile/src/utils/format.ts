@@ -29,6 +29,13 @@ export function canCancelRequest(requestStatus?: string | null, linkedJobStatus?
   return ["UNASSIGNED", "PENDING", "CREATED", "ASSIGNED"].includes(normalizedStatus(requestStatus));
 }
 
+export function isWithinCancellationWindow(createdAt?: string | null, now = Date.now()): boolean {
+  if (!createdAt) return false;
+  const createdTime = new Date(createdAt).getTime();
+  const age = now - createdTime;
+  return Number.isFinite(createdTime) && age >= 0 && age <= 3 * 60 * 60 * 1000;
+}
+
 export function canEditRequest(requestStatus?: string | null, linkedJobStatus?: string | null, hasLinkedJob = false): boolean {
   if (hasLinkedJob) {
     // The backend permits editing a linked request only while its job is still CREATED.

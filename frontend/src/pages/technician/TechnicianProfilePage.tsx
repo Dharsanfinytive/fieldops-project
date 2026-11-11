@@ -466,7 +466,10 @@ export default function TechnicianProfilePage({
           <div style={{ maxWidth: 1440, margin: "0 auto 14px" }}>
             <button
               type="button"
-              onClick={() => onNavigate("tech_dashboard")}
+              onClick={() => {
+                if (window.history.state?.fieldOps?.tab) window.history.back();
+                else onNavigate("tech_dashboard");
+              }}
               style={{ display: "inline-flex", alignItems: "center", gap: 7, border: 0, padding: "4px 0", background: "transparent", color: "#078A72", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
             >
               <ArrowLeft size={16} /> Back to Dashboard

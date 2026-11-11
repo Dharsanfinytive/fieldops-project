@@ -89,7 +89,6 @@ import {
 } from "../../hooks/useAcceptanceCountdown";
 import TechnicianJobAssignmentPopup from "../../components/technician/TechnicianJobAssignmentPopup";
 import {
-  TECHNICIAN_GPS_MAX_AGE_MS,
   isValidTechnicianGpsFix,
   useTechnicianGpsStore,
 } from "../../store/technicianGpsStore";
@@ -591,6 +590,7 @@ export default function TechnicianJobsPage() {
   const technicianGpsLocation = useTechnicianGpsStore(
     (state) => state.location,
   );
+  const technicianGpsMaxAgeMs = useTechnicianGpsStore((state) => state.maxAgeMs);
   const [gpsFreshnessNow, setGpsFreshnessNow] = useState(Date.now());
 
   const [messageJobId, setMessageJobId] = useState<number | null>(null);
@@ -718,7 +718,7 @@ useEffect(() => {
   if (!assignedPopupJob || !technicianGpsLocation) return;
 
   const expiresAt =
-    technicianGpsLocation.fix.timestamp + TECHNICIAN_GPS_MAX_AGE_MS;
+    technicianGpsLocation.fix.timestamp + technicianGpsMaxAgeMs;
   const staleInMs = expiresAt - Date.now() + 1;
   if (staleInMs <= 0) return;
 
@@ -727,7 +727,7 @@ useEffect(() => {
     staleInMs,
   );
   return () => window.clearTimeout(timer);
-}, [assignedPopupJob, technicianGpsLocation]);
+}, [assignedPopupJob, technicianGpsLocation, technicianGpsMaxAgeMs]);
 
 const customerCoordinates = assignedPopupJob
   ? parseCoordinates(

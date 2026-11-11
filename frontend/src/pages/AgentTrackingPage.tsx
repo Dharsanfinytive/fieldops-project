@@ -8,6 +8,9 @@ import {
   ChevronDown,
   CircleDashed,
   Clock3,
+  Mail,
+  Bell,
+  Smartphone,
   LockKeyhole,
   MapPin,
   Play,
@@ -88,9 +91,25 @@ function stageStateLabel(state: AgentTrackingStage["state"]): string {
   }
 }
 
+function eventIcon(event: AgentTrackingJobDetail["events"][number]) {
+  if (event.kind === "sentiment") return <Activity size={18} />;
+  if (event.kind === "escalation") return <AlertCircle size={18} />;
+  if (event.channel === "email") return <Mail size={18} />;
+  if (event.channel === "push" || event.channel === "in_app") return <Bell size={18} />;
+  if (event.channel === "sms") return <Smartphone size={18} />;
+  if (event.kind === "communication") return <MessageCircle size={18} />;
+  if (event.kind === "work") return <Activity size={18} />;
+  return <CircleDashed size={18} />;
+}
+
+function eventStateLabel(event: AgentTrackingJobDetail["events"][number]) {
+  if (event.delivery_status) return event.delivery_status.replace(/_/g, " ");
+  return event.kind === "communication" ? "Chat" : "Recorded";
+}
+
 function JobWorkflowCard({ job, onOpen }: { job: AgentTrackedJob; onOpen: () => void }) {
   const terminal = isTerminal(job);
-  const visibleStages = job.accepted ? job.stages : job.stages.slice(0, 3);
+  const visibleStages = job.stages;
   return (
     <article className="agent-track-card" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }} aria-label={`View job ${job.job_number} progress`}>
       <div className="agent-track-card-head">
@@ -159,9 +178,11 @@ function JobProgressDetail({
   const terminal = isTerminal(job);
   const [expandedEvents, setExpandedEvents] = useState<number[]>([]);
   useEffect(() => {
-    const firstCommunication = job.events.findIndex((event) => event.kind === "communication");
+    const firstCommunication = job.events.findIndex((event) =>
+      ["communication", "notification", "delivery"].includes(event.kind),
+    );
     setExpandedEvents(firstCommunication >= 0 ? [firstCommunication] : []);
-  }, [job.job_id, job.events]);
+  }, [job.job_id]);
 
   const toggleEvent = (index: number) => {
     setExpandedEvents((current) => current.includes(index)
@@ -222,19 +243,62 @@ function JobProgressDetail({
                 <button className="agent-track-event-trigger" onClick={() => toggleEvent(index)} aria-expanded={expandedEvents.includes(index)}>
                   <span className="agent-track-event-dot" />
                   <time>{formatTimestamp(event.timestamp)}</time>
-                  <span className="agent-track-event-icon">{event.kind === "communication" ? <MessageCircle size={18} /> : event.kind === "work" ? <Activity size={18} /> : <CircleDashed size={18} />}</span>
+                  <span className="agent-track-event-icon">{eventIcon(event)}</span>
                   <span className="agent-track-event-agent">{event.agent}</span>
-                  <span className="agent-track-event-copy"><strong>{event.title}</strong>{!detailed ? <small>{event.detail}</small> : null}</span>
-                  <span className="agent-track-event-state"><Check size={14} /> {event.kind === "communication" ? "Action Taken" : "Done"}</span>
+                  <span className="agent-track-event-copy"><strong>{event.title}</strong>{!detailed ? <small>{event.channel ? `${event.channel.replace(/_/g, " ")} · ` : ""}{event.detail}</small> : null}</span>
+                  <span className={`agent-track-event-state status-${(event.delivery_status || "recorded").toLowerCase().replace(/[^a-z0-9_-]/g, "-")}`}>
+                    {event.delivery_status === "failed" || event.delivery_status === "permanent_failure" ? <AlertCircle size={14} /> : <Check size={14} />}
+                    {eventStateLabel(event)}
+                  </span>
                   <ChevronDown className={expandedEvents.includes(index) ? "is-open" : ""} size={17} />
                 </button>
                 {expandedEvents.includes(index) ? (
                   <div className="agent-track-event-expanded">
-                    <div className="agent-track-event-detail"><strong>{event.agent} — {detailed ? "Recorded execution details" : "Event details"}</strong><p>{event.detail}</p></div>
-                    {detailed ? <div className="agent-track-data-grid">
-                      <div className="agent-track-data-card"><h3>Recorded input</h3>{event.input && Object.keys(event.input).length ? <dl>{Object.entries(event.input).map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd>{typeof value === "string" ? value : value == null ? "Not recorded" : JSON.stringify(value, null, 2)}</dd></div>)}</dl> : <p>No input snapshot was persisted for this event.</p>}</div>
-                      <div className="agent-track-data-card"><h3>Recorded output / outcome</h3>{event.output && Object.keys(event.output).length ? <dl>{Object.entries(event.output).map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, " ")}</dt><dd>{typeof value === "string" ? value : value == null ? "Not recorded" : JSON.stringify(value, null, 2)}</dd></div>)}</dl> : <p>No output snapshot was persisted for this event.</p>}</div>
-                    </div> : null}
+                    {event.kind === "delivery" || event.kind === "notification" ? (
+                      <div className="agent-track-event-detail agent-track-delivery-detail">
+                        <strong>{event.agent} · {event.channel?.replace(/_/g, " ") || "notification"}</strong>
+                        <p>{event.detail}</p>
+                        <dl>
+                          <div><dt>Delivery state</dt><dd>{eventStateLabel(event)}</dd></div>
+                          <div><dt>Recipient</dt><dd>{event.recipient_name ? `${event.recipient_name} · ` : ""}{event.recipient_role || "Not recorded"}</dd></div>
+                          {event.attempts != null ? <div><dt>Attempts</dt><dd>{event.attempts}</dd></div> : null}
+                          {event.event_version != null ? <div><dt>Event version</dt><dd>{event.event_version}</dd></div> : null}
+                          {event.smtp_status != null ? <div><dt>Mail server status</dt><dd>{event.smtp_status}</dd></div> : null}
+                          {event.error ? <div className="is-error"><dt>Delivery detail</dt><dd>{event.error}</dd></div> : null}
+                        </dl>
+                      </div>
+                    ) : event.kind === "communication" ? (
+                      <>
+                        <div className="agent-track-message-card"><MessageCircle size={18} /><strong>{event.sender_role ? `${event.sender_role.toLowerCase() === "customer" ? "Customer" : event.sender_role.toLowerCase() === "technician" ? "Technician" : event.sender_role} Message` : "Message"}</strong><p>{event.detail}</p></div>
+                        <span className="agent-track-event-arrow">→</span>
+                        <div className="agent-track-message-card mood-card"><Activity size={18} /><strong>Customer Mood</strong><p>{(event.message_id ? job.events.find((item) => item.kind === "sentiment" && item.source_message_id === event.message_id) : undefined)?.detail || "No sentiment analysis has been recorded for this message."}</p></div>
+                      </>
+                    ) : event.kind === "sentiment" ? (
+                      <div className="agent-track-event-detail">
+                        <strong>Sentiment analysis</strong>
+                        <p>{event.detail}</p>
+                        <dl>
+                          <div><dt>Emotion</dt><dd>{event.emotion || "Not recorded"}</dd></div>
+                          <div><dt>Urgency</dt><dd>{event.urgency || "Not recorded"}</dd></div>
+                          <div><dt>Severity</dt><dd>{event.severity || "Not recorded"}</dd></div>
+                          <div><dt>Issue type</dt><dd>{event.issue_categories?.length ? event.issue_categories.join(", ").replace(/_/g, " ") : "General"}</dd></div>
+                          <div><dt>Confidence</dt><dd>{event.confidence == null ? "Not recorded" : `${Math.round(event.confidence * 100)}%`}</dd></div>
+                          <div><dt>Analysis path</dt><dd>{event.analysis_source === "KEYWORD_FALLBACK" ? "Safe keyword fallback" : "AI analysis"}{event.language ? ` · ${event.language.toUpperCase()}` : ""}</dd></div>
+                          <div><dt>Human review</dt><dd>{event.requires_human ? "Requested" : "Not required"}</dd></div>
+                          {event.escalation_id != null ? <div><dt>Escalation</dt><dd>#{event.escalation_id} · {event.escalation_status || "Open"}{event.escalation_owner_id ? ` · Owner ${event.escalation_owner_id}` : " · Unassigned tenant queue"}</dd></div> : null}
+                        </dl>
+                      </div>
+                    ) : event.kind === "escalation" ? (
+                      <div className="agent-track-event-detail">
+                        <strong>Escalation #{event.escalation_id ?? "—"}</strong>
+                        <p>{event.detail}</p>
+                        <dl>
+                          <div><dt>Priority</dt><dd>{event.severity || "HIGH"}</dd></div>
+                          <div><dt>Owner</dt><dd>{event.recipient_id || "Tenant escalation queue"}</dd></div>
+                          <div><dt>Status</dt><dd>{eventStateLabel(event)}</dd></div>
+                        </dl>
+                      </div>
+                    ) : <div className="agent-track-event-detail"><strong>{event.agent} details</strong><p>{event.detail}</p></div>}
                   </div>
                 ) : null}
               </li>
@@ -257,6 +321,24 @@ export default function AgentTrackingPage() {
   const [detailError, setDetailError] = useState("");
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailedLog, setDetailedLog] = useState(false);
+
+  useEffect(() => {
+    if (!selectedJob) return;
+    let active = true;
+    const refreshSelectedJob = async () => {
+      try {
+        const latest = await getAgentTrackingJob(selectedJob.job_id);
+        if (active) setSelectedJob(latest);
+      } catch {
+        // Keep the last successful timeline visible during brief refresh failures.
+      }
+    };
+    const timer = window.setInterval(() => void refreshSelectedJob(), 20_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [selectedJob?.job_id]);
 
   const openJob = useCallback(async (job: AgentTrackedJob) => {
     setSelectedJob(null);
@@ -361,6 +443,12 @@ export default function AgentTrackingPage() {
       </header>
 
       <section className="agent-track-board">
+        <div className="agent-track-board-head">
+          <div>
+            <h2>Job workflows</h2>
+            <p>Open any job to see its agent stages, recipient chats, notifications, emails, and delivery results.</p>
+          </div>
+        </div>
         <div className="agent-track-toolbar">
         <div className="agent-track-filters" role="tablist" aria-label="Filter jobs">
           {FILTERS.map((option) => <button key={option.key} role="tab" aria-selected={filter === option.key} className={filter === option.key ? "is-selected" : ""} onClick={() => setFilter(option.key)}>

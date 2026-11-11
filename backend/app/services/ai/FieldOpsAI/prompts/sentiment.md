@@ -116,8 +116,16 @@ of the issue; do not infer critical severity from anger alone. Return both.
 ## Issue Categories
 
 Return zero to five applicable values from: `TECHNICIAN_DELAY`,
-`TECHNICIAN_BEHAVIOR`, `SERVICE_QUALITY`, `COMMUNICATION`, `SCHEDULING`,
-`PRICING_BILLING`, `UNRESOLVED_ISSUE`, `SAFETY`, `GENERAL_FEEDBACK`, `OTHER`.
+`SERVICE_DELAY`, `TECHNICIAN_BEHAVIOR`, `SERVICE_QUALITY`, `COMMUNICATION`,
+`SUPPORT_NON_RESPONSE`, `SCHEDULING`, `PRICING_BILLING`, `PAYMENT`,
+`UNRESOLVED_ISSUE`, `REPEATED_COMPLAINT`, `EQUIPMENT_DAMAGE`, `SAFETY`,
+`GENERAL_FEEDBACK`, `OTHER`.
+
+Treat explicit fire, smoke or burning smells, electrical shock, exposed/live
+wiring, gas leaks, injuries, and immediate danger as `SAFETY`, `CRITICAL`
+urgency and `CRITICAL` severity, even if the message is written neutrally.
+Do not infer a hazard from a clearly negated statement such as “there is no
+fire”; still recognize any separate, unnegated hazard in the same message.
 
 ## Recommended Action
 

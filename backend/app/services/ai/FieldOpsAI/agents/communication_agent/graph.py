@@ -178,6 +178,7 @@ def load(state: CommState, config: RunnableConfig) -> dict:
     )
     eta_minutes = None
     eta_updated_at = None
+    eta_distance_km = None
     if latest_eta and latest_eta.calculated_at and latest_eta.eta:
         calculated_at = latest_eta.calculated_at
         if calculated_at.tzinfo is None:
@@ -187,6 +188,7 @@ def load(state: CommState, config: RunnableConfig) -> dict:
         ).total_seconds()
         if 0 <= age_seconds <= 15 * 60:
             eta_updated_at = calculated_at.astimezone(timezone.utc).isoformat()
+            eta_distance_km = latest_eta.distance_km
             eta = latest_eta.eta
             if eta.tzinfo is None:
                 eta = eta.replace(tzinfo=timezone.utc)
@@ -326,6 +328,27 @@ def load(state: CommState, config: RunnableConfig) -> dict:
         if technician
         else None
     )
+
+    dispatch_attempt_id = None
+    if technician and technician.tech_id:
+        assignment_notification = (
+            db.query(InAppNotification)
+            .filter(
+                InAppNotification.tenant_id == str(technician.tenant_id),
+                InAppNotification.recipient_role == "technician",
+                InAppNotification.recipient_id == str(technician.tech_id),
+                InAppNotification.job_id == str(job.id),
+                InAppNotification.group_key == f"job_{job.id}",
+            )
+            .first()
+        )
+        assignment_metadata = (
+            getattr(assignment_notification, "notification_metadata", None) or {}
+        )
+        if isinstance(assignment_metadata, dict):
+            dispatch_attempt_id = assignment_metadata.get("dispatch_attempt_id")
+    job_data["eta_distance_km"] = eta_distance_km
+    job_data["dispatch_attempt_id"] = dispatch_attempt_id
 
     logger.info(
         "Communication Agent loaded job and recipients",
@@ -862,7 +885,15 @@ def dispatch(
         # ---------------------------------------------------------------
         # 2. Publish the live update only after the commit.
         # ---------------------------------------------------------------
-        if IN in recipient.channels and not is_replay:
+        if (
+            IN in recipient.channels
+            and not is_replay
+            and not (
+                event == JobEvent.TECHNICIAN_ASSIGNED
+                and recipient.role == "technician"
+                and message.get("card", {}).get("dispatch_attempt_id")
+            )
+        ):
             try:
                 push_live(
                     recipient.role,

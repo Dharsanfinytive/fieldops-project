@@ -213,14 +213,19 @@ export default function CustomerTrackingPage({
    */
   useEffect(() => {
     let stopped = false;
+    let hasAttemptedInitialLoad = false;
     let timer: number | undefined;
 
     const loadJobs = async () => {
       if (stopped) return;
-      if (document.visibilityState !== "visible" || !document.hasFocus()) {
+      if (
+        hasAttemptedInitialLoad &&
+        document.visibilityState !== "visible"
+      ) {
         timer = window.setTimeout(loadJobs, 3000);
         return;
       }
+      hasAttemptedInitialLoad = true;
       try {
         setRefreshing(false);
 

@@ -53,6 +53,7 @@ interface Job {
   updated_at?: string;
   assigned_at?: string;
   completed_at?: string;
+  closed_at?: string;
   assigned_technician_id?: number | null;
   required_skill?: string;
   sla_deadline?: string;
@@ -321,7 +322,8 @@ const styles = {
     gap: "4px",
     fontSize: "10px",
     whiteSpace: "nowrap",
-    overflow: "hidden",
+    overflowX: "auto",
+    overflowY: "hidden",
     textStyle: "ellipsis",
   } as React.CSSProperties,
 
@@ -343,7 +345,8 @@ const styles = {
     boxShadow: "0 2px 6px rgba(47, 79, 62, 0.03)",
     display: "flex",
     flexDirection: "column",
-    overflow: "hidden",
+    overflowX: "auto",
+    overflowY: "hidden",
     height: "285px",
     boxSizing: "border-box",
   } as React.CSSProperties,
@@ -575,7 +578,8 @@ const styles = {
     height: "6px",
     background: "#E5E7EB",
     borderRadius: "3px",
-    overflow: "hidden",
+    overflowX: "auto",
+    overflowY: "hidden",
   } as React.CSSProperties,
 
   categoryBarFill: {
@@ -664,7 +668,8 @@ const styles = {
     boxShadow: "0 2px 6px rgba(47, 79, 62, 0.03)",
     display: "flex",
     flexDirection: "column",
-    overflow: "hidden",
+    overflowX: "auto",
+    overflowY: "hidden",
     boxSizing: "border-box",
   } as React.CSSProperties,
 
@@ -746,7 +751,8 @@ const styles = {
     border: "1px solid #DCEDE4",
     borderRadius: "16px",
     boxShadow: "0 10px 22px rgba(15, 46, 32, 0.07), 0 2px 5px rgba(15, 46, 32, 0.04), inset 0 1px 0 rgba(255,255,255,0.95)",
-    overflow: "hidden",
+    overflowX: "auto",
+    overflowY: "hidden",
     padding: "12px 14px",
     width: "100%",
     boxSizing: "border-box",
@@ -1362,17 +1368,24 @@ interface DashboardProps {
       if (refreshInFlight || document.visibilityState !== "visible" || !document.hasFocus()) return;
       refreshInFlight = true;
       try {
-        const [statsRes, jobsRes] = await Promise.all([
-          getDashboardStats(timeRange),
+        const [statsRes, jobsRes, techniciansRes] = await Promise.all([
+          getDashboardStats(timeRange, dateRange),
           getJobs(),
+          getTechnicians().catch((error) => {
+            console.warn("Dashboard technician list unavailable:", error);
+            return { data: [] };
+          }),
         ]);
 
         if (isMounted && statsRes?.data) {
           setStats(statsRes.data);
           setStatsError(false);
         }
-        if (isMounted && jobsRes?.data) {
-          setRecentJobs(jobsRes.data.slice(0, 5));
+        if (isMounted && Array.isArray(jobsRes?.data)) {
+          setRecentJobs(jobsRes.data);
+        }
+        if (isMounted && Array.isArray(techniciansRes?.data)) {
+          setTechnicians(techniciansRes.data);
         }
       } catch (err) {
         console.error("Dashboard refresh failed:", err);
@@ -1576,6 +1589,7 @@ interface DashboardProps {
     return dateKey >= effectiveDateRange.start_date && dateKey <= effectiveDateRange.end_date;
   });
 
+
   // Automatically group Job Performance using the main dashboard date range.
   const getActivityDateKey = (value?: string): string => {
     if (!value) return "";
@@ -1609,39 +1623,29 @@ interface DashboardProps {
   chartRangeStart.setHours(0, 0, 0, 0);
   chartRangeEnd.setHours(0, 0, 0, 0);
 
-  const chartRangeDays = Math.max(
-    1,
-    Math.floor(
-      (
-        Date.UTC(
-          chartRangeEnd.getFullYear(),
-          chartRangeEnd.getMonth(),
-          chartRangeEnd.getDate(),
-        ) -
-        Date.UTC(
-          chartRangeStart.getFullYear(),
-          chartRangeStart.getMonth(),
-          chartRangeStart.getDate(),
-        )
-      ) / 86400000,
-    ) + 1,
-  );
+  const selectedRangeDays = effectiveDateRange
+    ? Math.round(
+        (parseDateInputValue(effectiveDateRange.end_date).getTime() -
+          parseDateInputValue(effectiveDateRange.start_date).getTime()) /
+          86400000,
+      ) + 1
+    : 0;
 
-  // Choose chart grouping automatically.
+  // Today = hourly; short ranges = daily; multi-month ranges and All Time = monthly.
   const performanceGrouping =
-    filterMode === "week"
-      ? "weekly"
-      : filterMode === "today"
-        ? "daily"
-        : filterMode === "custom" && chartRangeDays <= 31
-          ? "daily"
-          : "monthly";
+    filterMode === "today"
+      ? "hourly"
+      : effectiveDateRange
+        ? selectedRangeDays > 31
+          ? "monthly"
+          : "daily"
+        : "monthly";
 
   const performanceGroupingLabel =
-    performanceGrouping === "daily"
-      ? "Daily View"
-      : performanceGrouping === "weekly"
-        ? "Weekly View"
+    performanceGrouping === "hourly"
+      ? "Two-Hour View"
+      : performanceGrouping === "daily"
+        ? "Daily View"
         : "Monthly View";
 
   const performanceBuckets: {
@@ -1650,7 +1654,6 @@ interface DashboardProps {
     completed: number;
   }[] = [];
 
-  // Add one bucket and count both activities using their own timestamps.
   const addPerformanceBucket = (
     bucketStart: Date,
     bucketEnd: Date,
@@ -1677,7 +1680,9 @@ interface DashboardProps {
     ).length;
 
     const completed = recentJobs.filter((job) =>
-      isInsideSelectedRange(getActivityDateKey(job.completed_at)),
+      isInsideSelectedRange(
+        getActivityDateKey(getCompletionActivityDate(job)),
+      ),
     ).length;
 
     performanceBuckets.push({
@@ -1693,32 +1698,72 @@ interface DashboardProps {
       day: "numeric",
     });
 
-  const addMonthsFromAnchor = (
-    anchor: Date,
-    months: number,
-  ): Date => {
-    const target = new Date(
-      anchor.getFullYear(),
-      anchor.getMonth() + months,
-      1,
-    );
+  const getCompletionActivityDate = (job: Job): string | undefined => {
+    if (job.completed_at || job.closed_at) {
+      return job.completed_at || job.closed_at;
+    }
 
-    const lastDay = new Date(
-      target.getFullYear(),
-      target.getMonth() + 1,
-      0,
-    ).getDate();
+    if (!isCompletedJob(job)) return undefined;
 
-    target.setDate(Math.min(anchor.getDate(), lastDay));
-
-    return target;
+    // Legacy completed records may not have a transition timestamp. Prefer
+    // their last update when it falls in the selected range; otherwise use
+    // creation date so completed jobs in the selected cohort remain visible.
+    const updatedDateKey = getActivityDateKey(job.updated_at);
+    const updatedDateInRange = effectiveDateRange
+      ? updatedDateKey >= effectiveDateRange.start_date &&
+        updatedDateKey <= effectiveDateRange.end_date
+      : Boolean(updatedDateKey);
+    return updatedDateInRange ? job.updated_at : job.created_at || job.updated_at;
   };
 
-  const chartEndExclusive = new Date(chartRangeEnd);
-  chartEndExclusive.setDate(chartEndExclusive.getDate() + 1);
+  if (performanceGrouping === "hourly") {
+    // Six two-hour periods from 8 AM to 8 PM.
+    const selectedDayKey = toDateInputValue(chartRangeStart);
 
-  if (performanceGrouping === "daily") {
-    // Daily chart: one group per day.
+    const timeSlots = [
+      { start: 8, end: 10, label: "8–10 AM" },
+      { start: 10, end: 12, label: "10 AM–12 PM" },
+      { start: 12, end: 14, label: "12–2 PM" },
+      { start: 14, end: 16, label: "2–4 PM" },
+      { start: 16, end: 18, label: "4–6 PM" },
+      { start: 18, end: 20, label: "6–8 PM" },
+    ];
+
+    const belongsToSlot = (
+      value: string | undefined,
+      startHour: number,
+      endHour: number,
+    ) => {
+      if (!value) return false;
+
+      const parsed = new Date(value);
+
+      if (Number.isNaN(parsed.getTime())) return false;
+
+      return (
+        getActivityDateKey(value) === selectedDayKey &&
+        parsed.getHours() >= startHour &&
+        parsed.getHours() < endHour
+      );
+    };
+
+    timeSlots.forEach((slot) => {
+      performanceBuckets.push({
+        label: slot.label,
+        created: recentJobs.filter((job) =>
+          belongsToSlot(job.created_at, slot.start, slot.end),
+        ).length,
+        completed: recentJobs.filter((job) =>
+          belongsToSlot(
+            getCompletionActivityDate(job),
+            slot.start,
+            slot.end,
+          ),
+        ).length,
+      });
+    });
+  } else if (performanceGrouping === "daily") {
+    // One bucket for every selected calendar day, including zero-activity days.
     const cursor = new Date(chartRangeStart);
 
     while (cursor <= chartRangeEnd) {
@@ -1735,49 +1780,38 @@ interface DashboardProps {
 
       cursor.setDate(cursor.getDate() + 1);
     }
-  } else if (performanceGrouping === "weekly") {
-    // This Week: one combined weekly group.
-    addPerformanceBucket(
-      chartRangeStart,
-      chartEndExclusive,
-      `${formatChartDate(chartRangeStart)} – ${formatChartDate(chartRangeEnd)}`,
-    );
   } else {
-    // Monthly view: periods anchored to the selected From date.
-    let cursor = new Date(chartRangeStart);
-    let periodIndex = 0;
+    // Monthly ranges use calendar-month buckets, including partial first and last months.
+    const cursor = new Date(
+      chartRangeStart.getFullYear(),
+      chartRangeStart.getMonth(),
+      1,
+    );
 
-    while (cursor < chartEndExclusive) {
-      const nextMonth = addMonthsFromAnchor(
-        chartRangeStart,
-        periodIndex + 1,
+    while (cursor <= chartRangeEnd) {
+      const bucketStart = new Date(cursor);
+
+      const bucketEnd = new Date(
+        cursor.getFullYear(),
+        cursor.getMonth() + 1,
+        1,
       );
 
-      const bucketEnd =
-        nextMonth >= chartRangeEnd
-          ? chartEndExclusive
-          : nextMonth;
-
-      const lastIncludedDate = new Date(bucketEnd);
-      lastIncludedDate.setDate(lastIncludedDate.getDate() - 1);
-
-      const label = chartRangeDays <= 210
-        ? `${formatChartDate(cursor)} – ${formatChartDate(lastIncludedDate)}`
-        : cursor.toLocaleDateString("en-US", {
-            month: "short",
-            year: "2-digit",
-          });
+      const label = cursor.toLocaleDateString("en-US", {
+        month: "short",
+        year: "2-digit",
+      });
 
       addPerformanceBucket(
-        cursor,
+        bucketStart,
         bucketEnd,
         label,
       );
 
-      cursor = new Date(bucketEnd);
-      periodIndex += 1;
+      cursor.setMonth(cursor.getMonth() + 1);
     }
   }
+
 
   const performanceMax = Math.max(
     1,
@@ -1877,7 +1911,8 @@ interface DashboardProps {
           marginTop: "0px",
           height: "clamp(150px, 12vw, 180px)",
           borderRadius: "12px",
-          overflow: "hidden",
+          overflowX: "auto",
+          overflowY: "hidden",
           background: "#064E3B",
           flexShrink: 0,
         }}
@@ -2450,7 +2485,9 @@ interface DashboardProps {
             key: "total",
             label: "Total Jobs",
             value: stats.job_cards.total,
-            subtext: "All jobs in this organization",
+            subtext: effectiveDateRange
+              ? "Jobs created in the selected date range"
+              : "All jobs in this organization",
             color: "#10B981",
             icon: Briefcase,
             trend: "M2 28 L12 22 L22 25 L32 15 L42 20 L52 9 L62 15 L72 4",
@@ -2510,7 +2547,9 @@ interface DashboardProps {
             key: "completed",
             label: "Completed",
             value: stats.job_cards.completed,
-            subtext: "Work completion recorded",
+            subtext: effectiveDateRange
+              ? "Created in this range; now completed"
+              : "All completed jobs",
             color: "#10B981",
             icon: CheckCircle,
             trend: "M2 27 L12 23 L22 25 L32 14 L42 19 L52 9 L62 14 L72 4",
@@ -2701,7 +2740,8 @@ interface DashboardProps {
                 background: "linear-gradient(145deg, #FCFFFD 0%, #F4FAF6 100%)",
                 boxShadow: "inset 0 1px 0 rgba(255,255,255,0.95)",
                 boxSizing: "border-box",
-                overflow: "hidden",
+                overflowX: "auto",
+                overflowY: "hidden",
               }}
             >
               {/* Horizontal chart grid */}
@@ -2739,11 +2779,18 @@ interface DashboardProps {
                   height: "100%",
                   display: "grid",
                   gridTemplateColumns: `repeat(${performanceBuckets.length}, minmax(0, 1fr))`,
-                  gap: performanceGrouping === "daily" ? "3px" : performanceGrouping === "weekly" ? "8px" : "12px",
+                  gap:
+                    performanceGrouping === "daily"
+                      ? "3px"
+                      : performanceGrouping === "hourly"
+                        ? "6px"
+                        : "12px",
                   minWidth:
-                    performanceGrouping === "monthly" && performanceBuckets.length > 24
-                      ? `${performanceBuckets.length * 24}px`
-                      : "100%",
+                    performanceGrouping === "daily" && performanceBuckets.length > 14
+                      ? `${performanceBuckets.length * 30}px`
+                      : performanceGrouping === "monthly" && performanceBuckets.length > 24
+                        ? `${performanceBuckets.length * 24}px`
+                        : "100%",
                 }}
               >
                 {performanceBuckets.map((bucket, index) => {
@@ -2915,7 +2962,11 @@ interface DashboardProps {
                   lineHeight: 1.5,
                 }}
               >
-                Jobs Created and Jobs Completed are grouped by their respective dates.
+                {performanceGrouping === "hourly"
+                  ? "Today's jobs are grouped into two-hour intervals from 8 AM to 8 PM."
+                  : performanceGrouping === "daily"
+                    ? "Created bars use creation dates; completed bars use completion/close dates, with legacy date fallbacks when missing."
+                    : "Created bars use creation dates; completed bars use completion/close dates, with legacy fallbacks, grouped by month."}
               </span>
 
               <span
@@ -2941,7 +2992,7 @@ interface DashboardProps {
             <div style={{ width: "34px", height: "34px", borderRadius: "11px", background: "linear-gradient(145deg,#D9F7E8,#A9E9CC)", color: "#059669", display: "grid", placeItems: "center", boxShadow: "0 5px 10px rgba(5,150,105,.14)" }}><Activity size={19} /></div>
             <div>
               <h3 id="job-status-title" style={{ margin: 0, color: "#142238", fontSize: "15px", fontWeight: 800 }}>Job Status Distribution</h3>
-              <p style={{ margin: "3px 0 0", color: "#718096", fontSize: "11px" }}>Selected date range</p>
+              <p style={{ margin: "3px 0 0", color: "#718096", fontSize: "11px" }}>Current status of jobs created in the selected range</p>
             </div>
           </div>
           <div style={{ padding: "18px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "18px", flex: 1, minHeight: "250px" }}>
@@ -3133,7 +3184,7 @@ interface DashboardProps {
                       borderRadius: "10px",
                       background: "rgba(148,163,184,0.17)",
                       overflowX: "auto",
-                overflowY: "hidden",
+                      overflowY: "hidden",
                     }}
                   >
                     <div

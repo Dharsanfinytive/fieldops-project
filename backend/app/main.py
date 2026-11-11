@@ -47,6 +47,7 @@ from .routes import (
     admin_retention,
     admin_queue,
     admin_metrics,
+    organization_settings,
     admin_tools,
 )
 from .routes import auth as auth_routes
@@ -531,6 +532,7 @@ app.include_router(admin_retention.router)
 app.include_router(admin_queue.router)
 app.include_router(admin_dlq.router)
 app.include_router(admin_metrics.router)
+app.include_router(organization_settings.router)
 app.include_router(admin_tools.router)
 app.include_router(admin_agent_tracking.router)
 

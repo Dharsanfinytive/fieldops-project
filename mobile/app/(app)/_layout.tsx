@@ -1,6 +1,6 @@
 ﻿import { useEffect } from "react";
-import { Redirect, Tabs, useRouter } from "expo-router";
-import { AppState, StyleSheet, Text, View } from "react-native";
+import { Redirect, Tabs, usePathname, useRouter } from "expo-router";
+import { AppState, BackHandler, Platform, StyleSheet, Text, ToastAndroid, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -29,6 +29,7 @@ export default function AppLayout() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
   const router = useRouter();
+  const pathname = usePathname();
   const networkStatus = useNetworkStatus();
   const insets = useSafeAreaInsets();
 
@@ -341,6 +342,22 @@ export default function AppLayout() {
     router
   ]);
 
+  useEffect(() => {
+    if (!isAuthenticated || user?.role.toLowerCase() !== "technician" || Platform.OS !== "android" || pathname !== "/dashboard") return;
+    let lastBackPress = 0;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (router.canGoBack()) return false;
+      const now = Date.now();
+      if (now - lastBackPress < 2000) BackHandler.exitApp();
+      else {
+        lastBackPress = now;
+        ToastAndroid.show("Press back again to exit", ToastAndroid.SHORT);
+      }
+      return true;
+    });
+    return () => subscription.remove();
+  }, [isAuthenticated, pathname, router, user?.role]);
+
   if (isLoading) {
     return <LoadingState label="Checking your session..." variant="dashboard" />;
   }
@@ -386,6 +403,7 @@ export default function AppLayout() {
 
       <View style={styles.tabsContainer}>
         <Tabs
+          backBehavior="fullHistory"
           screenOptions={{
             headerShown: false,
             tabBarActiveTintColor: "#007F5F",

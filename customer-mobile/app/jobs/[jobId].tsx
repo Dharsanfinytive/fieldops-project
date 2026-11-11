@@ -818,7 +818,7 @@ export default function CustomerJobDetailScreen() {
     return (
       <Screen>
         <ErrorState message={error || "Job could not be found."} onRetry={() => void load()} />
-        <AppButton title="Back to tracking" onPress={() => router.replace("/(tabs)/tracking")} />
+        <AppButton title="Back to tracking" onPress={() => router.back()} />
       </Screen>
     );
   }

@@ -1,682 +1,532 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { Eye, RefreshCw } from "lucide-react";
-import dispatcherService, {
-  Dispatcher,
-} from "../../services/dispatcherService";
-
-const PAGE_SIZE = 8;
-const REFRESH_MS = 3000;
-
-
-const styles = {
-  page: {
-    fontFamily: "'Inter', sans-serif",
-    background: "#EEF4F1",
-    height: "100%",
-    maxHeight: "100%",
-    padding: "14px",
-    color: "#1F2933",
-    display: "flex",
-    flexDirection: "column",
-    gap: "14px",
-    boxSizing: "border-box",
-    overflow: "hidden",
-  } as React.CSSProperties,
-
-  tableCard: {
-    background: "#FFFFFF",
-    border: "1px solid #E3ECE7",
-    borderRadius: "12px",
-    boxShadow: "0 1px 4px rgba(47,79,62,.07)",
-    overflow: "hidden",
-    display: "flex",
-    flexDirection: "column",
-    flex: 1,
-    boxSizing: "border-box",
-  } as React.CSSProperties,
-
-  cardHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: "10px",
-    padding: "10px 16px",
-    borderBottom: "1px solid #E3ECE7",
-    boxSizing: "border-box",
-  } as React.CSSProperties,
-
-  badge: {
-    display: "inline-block",
-    background: "#DDEEE5",
-    color: "#2F4F3E",
-    fontSize: "9px",
-    fontWeight: 700,
-    padding: "2px 6px",
-    borderRadius: "20px",
-    letterSpacing: ".05em",
-    textTransform: "uppercase",
-    marginBottom: "4px",
-  } as React.CSSProperties,
-
-  subtitle: {
-    fontSize: "11px",
-    color: "#6B7280",
-    marginTop: "3px",
-    marginBottom: 0,
-  } as React.CSSProperties,
-
-  headerRight: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    flexWrap: "wrap",
-  } as React.CSSProperties,
-
-  refreshInfo: {
-    display: "flex",
-    alignItems: "center",
-    gap: "7px",
-    fontSize: "10.5px",
-    color: "#6B7280",
-    fontWeight: 500,
-  } as React.CSSProperties,
-
-  refreshButton: {
-    background: "#FFFFFF",
-    border: "1.5px solid #E3ECE7",
-    color: "#2F4F3E",
-    padding: "6px 12px",
-    borderRadius: "8px",
-    fontSize: "10px",
-    fontWeight: 600,
-    fontFamily: "'Inter', sans-serif",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-  } as React.CSSProperties,
-
-  filterBar: {
-    background: "transparent",
-    borderBottom: "1px solid #E3ECE7",
-    padding: "10px 16px",
-    display: "flex",
-    alignItems: "flex-end",
-    gap: "12px",
-    flexWrap: "wrap",
-    boxSizing: "border-box",
-  } as React.CSSProperties,
-
-  filterGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-    minWidth: "160px",
-  } as React.CSSProperties,
-
-  searchGroup: {
-    flex: 1,
-    minWidth: "220px",
-  } as React.CSSProperties,
-
-  filterLabel: {
-    fontSize: "9px",
-    fontWeight: 700,
-    color: "#6B7280",
-    textTransform: "uppercase",
-    letterSpacing: ".05em",
-  } as React.CSSProperties,
-
-  searchInput: {
-    width: "100%",
-    padding: "8px 10px 8px 30px",
-    border: "1.5px solid #E3ECE7",
-    borderRadius: "8px",
-    fontSize: "11px",
-    fontFamily: "'Inter', sans-serif",
-    color: "#1F2933",
-    background: "#FFFFFF",
-    outline: "none",
-    boxSizing: "border-box",
-  } as React.CSSProperties,
-
-  select: {
-    padding: "8px 10px",
-    border: "1.5px solid #E3ECE7",
-    borderRadius: "8px",
-    fontSize: "11px",
-    fontFamily: "'Inter', sans-serif",
-    color: "#1F2933",
-    background: "#FFFFFF",
-    outline: "none",
-    cursor: "pointer",
-    width: "100%",
-    boxSizing: "border-box",
-  } as React.CSSProperties,
-
-  clearButton: {
-    padding: "8px 14px",
-    background: "#F6FAF8",
-    border: "1.5px solid #E3ECE7",
-    borderRadius: "8px",
-    fontSize: "10px",
-    fontWeight: 600,
-    color: "#6B7280",
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-  } as React.CSSProperties,
-
-  meta: {
-    padding: "14px 20px 0",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-  } as React.CSSProperties,
-
-  resultCount: {
-    fontSize: "10px",
-    color: "#6B7280",
-    fontWeight: 500,
-    margin: 0,
-  } as React.CSSProperties,
-
-  tableWrap: {
-    overflowX: "auto",
-    overflowY: "auto",
-    flex: 1,
-    minHeight: 0,
-  } as React.CSSProperties,
-
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    minWidth: "750px",
-  } as React.CSSProperties,
-
-  th: {
-    padding: "7px 12px",
-    textAlign: "left",
-    fontSize: "9px",
-    fontWeight: 700,
-    color: "#6B7280",
-    textTransform: "uppercase",
-    letterSpacing: ".05em",
-    whiteSpace: "nowrap",
-    background: "#F8FBF9",
-    borderBottom: "2px solid #E3ECE7",
-  } as React.CSSProperties,
-
-  td: {
-    padding: "7px 12px",
-    fontSize: "11px",
-    color: "#1F2933",
-    verticalAlign: "middle",
-    borderBottom: "1px solid #F0F4F2",
-  } as React.CSSProperties,
-
-  nameCell: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  } as React.CSSProperties,
-
-  avatar: {
-    width: "34px",
-    height: "34px",
-    minWidth: "34px",
-    borderRadius: "50%",
-    background: "linear-gradient(135deg, #7AAE8A, #5C9470)",
-    color: "#FFFFFF",
-    fontSize: "12px",
-    fontWeight: 700,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  } as React.CSSProperties,
-
-  nameInfo: {
-    display: "flex",
-    flexDirection: "column",
-  } as React.CSSProperties,
-
-  name: {
-    fontWeight: 600,
-    color: "#1F2933",
-    fontSize: "12px",
-  } as React.CSSProperties,
-
-  secondary: {
-    fontSize: "9px",
-    color: "#6B7280",
-    marginTop: "2px",
-  } as React.CSSProperties,
-
-  statusActive: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "5px",
-    padding: "4px 9px",
-    borderRadius: "20px",
-    background: "#DDEEE5",
-    color: "#2F4F3E",
-    fontSize: "9px",
-    fontWeight: 700,
-  } as React.CSSProperties,
-
-  statusInactive: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "5px",
-    padding: "4px 9px",
-    borderRadius: "20px",
-    background: "#F0F4F2",
-    color: "#6B7280",
-    fontSize: "9px",
-    fontWeight: 700,
-  } as React.CSSProperties,
-
-  dutyOn: {
-    color: "#2F7A3A",
-    fontWeight: 600,
-    fontSize: "10px",
-  } as React.CSSProperties,
-
-  dutyOff: {
-    color: "#9B3A3A",
-    fontWeight: 600,
-    fontSize: "10px",
-  } as React.CSSProperties,
-
-  actionButton: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    padding: "4px",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#16a34a",
-  } as React.CSSProperties,
-
-    dispatcherProfileCard: {
-    background: "#FFFFFF",
-    border: "1px solid #E3ECE7",
-    borderRadius: "16px",
-    padding: "24px",
-    boxShadow: "0 4px 18px rgba(47,79,62,.06)",
-    maxWidth: "760px",
-    width: "100%",
-    margin: "24px auto",
-    boxSizing: "border-box",
-  } as React.CSSProperties,
-
-  dispatcherProfileHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "16px",
-    paddingBottom: "20px",
-    borderBottom: "1px solid #EAF0EC",
-  } as React.CSSProperties,
-
-  dispatcherProfileIdentity: {
-    display: "flex",
-    alignItems: "center",
-    gap: "16px",
-    minWidth: 0,
-  } as React.CSSProperties,
-
-  dispatcherLargeAvatar: {
-    width: "64px",
-    height: "64px",
-    minWidth: "64px",
-    borderRadius: "16px",
-    background: "linear-gradient(135deg, #7AAE8A, #5C9470)",
-    color: "#FFFFFF",
-    fontSize: "20px",
-    fontWeight: 700,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  } as React.CSSProperties,
-
-  dispatcherProfileName: {
-    fontSize: "18px",
-    fontWeight: 700,
-    color: "#1F2933",
-    marginBottom: "5px",
-  } as React.CSSProperties,
-
-  dispatcherProfileRole: {
-    fontSize: "11px",
-    color: "#6B7280",
-  } as React.CSSProperties,
-
-  dispatcherStatusBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    padding: "6px 10px",
-    borderRadius: "20px",
-    fontSize: "10px",
-    fontWeight: 700,
-    whiteSpace: "nowrap",
-  } as React.CSSProperties,
-
-  dispatcherProfileGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: "14px",
-    marginTop: "20px",
-  } as React.CSSProperties,
-
-  dispatcherInfoBox: {
-    padding: "14px",
-    background: "#F8FBF9",
-    border: "1px solid #EAF0EC",
-    borderRadius: "10px",
-  } as React.CSSProperties,
-
-  dispatcherInfoLabel: {
-    fontSize: "9px",
-    fontWeight: 700,
-    color: "#7A8B82",
-    textTransform: "uppercase",
-    letterSpacing: ".05em",
-    marginBottom: "6px",
-  } as React.CSSProperties,
-
-  dispatcherInfoValue: {
-    fontSize: "12px",
-    fontWeight: 600,
-    color: "#1F2933",
-    wordBreak: "break-word",
-  } as React.CSSProperties,
-
-  dispatcherDutyRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "12px",
-    marginTop: "20px",
-    paddingTop: "18px",
-    borderTop: "1px solid #EAF0EC",
-  } as React.CSSProperties,
-
-  dispatcherDutyBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    fontSize: "11px",
-    fontWeight: 700,
-  } as React.CSSProperties,
-
-  stateCell: {
-    textAlign: "center",
-    padding: "40px 20px",
-    color: "#6B7280",
-    fontSize: "12px",
-  } as React.CSSProperties,
-
-  pagination: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "6px 12px",
-    borderTop: "1px solid #E3ECE7",
-    flexWrap: "wrap",
-    gap: "6px",
-    background: "#FFFFFF",
-  } as React.CSSProperties,
-
-  pageInfo: {
-    fontSize: "11px",
-    color: "#6B7280",
-    fontWeight: 500,
-  } as React.CSSProperties,
-
-  pageControls: {
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-  } as React.CSSProperties,
-
-  pageButton: {
-    padding: "3px 8px",
-    background: "#FFFFFF",
-    border: "1.5px solid #E3ECE7",
-    borderRadius: "6px",
-    fontSize: "10px",
-    fontWeight: 600,
-    color: "#2F4F3E",
-    cursor: "pointer",
-  } as React.CSSProperties,
-
-  activePage: {
-    background: "#7AAE8A",
-    borderColor: "#7AAE8A",
-    color: "#FFFFFF",
-  } as React.CSSProperties,
-
-  sidebarOverlay: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(31,41,51,.3)",
-    backdropFilter: "blur(2px)",
-    zIndex: 999,
-  } as React.CSSProperties,
-
-  sidebar: {
-    position: "fixed",
-    top: 0,
-    right: 0,
-    width: "440px",
-    height: "100vh",
-    background: "#FFFFFF",
-    boxShadow: "-4px 0 32px rgba(47,79,62,.12)",
-    zIndex: 1000,
-    display: "flex",
-    flexDirection: "column",
-  } as React.CSSProperties,
-
-  sidebarHeader: {
-    padding: "22px 24px",
-    borderBottom: "1px solid #E3ECE7",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    background: "#F8FBF9",
-  } as React.CSSProperties,
-
-  sidebarTitle: {
-    fontSize: "14.5px",
-    fontWeight: 700,
-    color: "#2F4F3E",
-    margin: 0,
-  } as React.CSSProperties,
-
-  closeButton: {
-    background: "none",
-    border: "none",
-    fontSize: "22px",
-    color: "#6B7280",
-    cursor: "pointer",
-    width: "32px",
-    height: "32px",
-  } as React.CSSProperties,
-
-  sidebarBody: {
-    flex: 1,
-    padding: "24px",
-    overflowY: "auto",
-  } as React.CSSProperties,
-
-  detailHero: {
-    display: "flex",
-    alignItems: "center",
-    gap: "14px",
-    padding: "18px",
-    background: "#F6FAF8",
-    borderRadius: "10px",
-    border: "1px solid #E3ECE7",
-    marginBottom: "20px",
-  } as React.CSSProperties,
-
-  detailAvatar: {
-    width: "52px",
-    height: "52px",
-    borderRadius: "50%",
-    background: "linear-gradient(135deg, #7AAE8A, #5C9470)",
-    color: "#FFFFFF",
-    fontSize: "18px",
-    fontWeight: 700,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  } as React.CSSProperties,
-
-  detailName: {
-    fontSize: "13.5px",
-    fontWeight: 700,
-    color: "#2F4F3E",
-  } as React.CSSProperties,
-
-  detailMeta: {
-    fontSize: "10px",
-    color: "#6B7280",
-    marginTop: "3px",
-  } as React.CSSProperties,
-
-  sectionTitle: {
-    fontSize: "9px",
-    fontWeight: 700,
-    color: "#6B7280",
-    textTransform: "uppercase",
-    letterSpacing: ".05em",
-    marginBottom: "10px",
-  } as React.CSSProperties,
-
-  detailRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "9px 0",
-    borderBottom: "1px solid #F0F4F2",
-    fontSize: "10.5px",
-  } as React.CSSProperties,
-
-  detailLabel: {
-    color: "#6B7280",
-    fontWeight: 500,
-  } as React.CSSProperties,
-
-  detailValue: {
-    color: "#1F2933",
-    fontWeight: 600,
-    textAlign: "right",
-    maxWidth: "60%",
-    wordBreak: "break-word",
-  } as React.CSSProperties,
-};
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  Activity,
+  Building2,
+  CalendarDays,
+  ChevronDown,
+  Clock3,
+  Eye,
+  IdCard,
+  Mail,
+  MapPin,
+  Phone,
+  RefreshCw,
+  UsersRound,
+} from "lucide-react";
+import dispatcherService, { Dispatcher } from "../../services/dispatcherService";
+import dispatcherBanner from "../../assets/dispatcher-banner.png";
+
+const REFRESH_MS = 30000;
 
 const localCss = `
-  .dispatcher-row:hover td {
-    background-color: #EAF4EE !important;
+  .dispatcher-page {
+    width: 100%;
+    min-height: 100%;
+    padding: 18px 22px 28px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    color: #172b24;
+    font-family: 'Inter', sans-serif;
   }
 
-  .dispatcher-action:hover {
-    transform: scale(1.2);
-    opacity: .8;
+  .dispatcher-profile-card {
+    width: 100%;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    background: #ffffff;
+    border: 1px solid #e0ebe5;
+    border-radius: 20px;
+    box-shadow: 0 5px 20px rgba(21, 73, 49, .06);
+    box-sizing: border-box;
   }
 
-  .dispatcher-refresh:hover:not(:disabled) {
-    background-color: #F6FAF8 !important;
-    border-color: #7AAE8A !important;
+  .dispatcher-banner {
+    min-height: 200px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    padding: 26px 38px;
+    overflow: hidden;
+    border-radius: 20px;
+    color: #ffffff;
+    background: linear-gradient(112deg, #075632 0%, #087746 46%, #087c49 70%, #034b31 100%);
+    box-sizing: border-box;
   }
 
-  .dispatcher-search:focus,
-  .dispatcher-select:focus {
-    border-color: #7AAE8A !important;
-    box-shadow: 0 0 0 3px rgba(122,174,138,.12) !important;
+  .dispatcher-banner::before,
+  .dispatcher-banner::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    border: 1px solid rgba(164, 245, 191, .18);
+    border-radius: 50%;
+    transform: rotate(-8deg);
   }
 
-  .dispatcher-clear:hover {
-    border-color: #7AAE8A !important;
-    color: #2F4F3E !important;
-    background-color: #EAF4EE !important;
+  .dispatcher-banner.has-custom-art::before,
+  .dispatcher-banner.has-custom-art::after {
+    display: none;
   }
 
-  @media (max-width: 768px) {
-    .dispatcher-header {
-      flex-direction: column !important;
-      align-items: flex-start !important;
-    }
+  .dispatcher-banner::before {
+    width: 72%;
+    height: 170px;
+    left: 24%;
+    bottom: -113px;
+    box-shadow: 0 -18px 0 rgba(81, 203, 125, .08), 0 -36px 0 rgba(81, 203, 125, .05);
+  }
 
-    .dispatcher-header-right {
-      width: 100% !important;
-      justify-content: space-between !important;
-    }
+  .dispatcher-banner::after {
+    width: 42%;
+    height: 135px;
+    left: 40%;
+    bottom: -104px;
+    border-color: rgba(197, 255, 214, .15);
+  }
 
-    .dispatcher-filter {
-      flex-direction: column !important;
-      align-items: stretch !important;
-    }
+  .dispatcher-avatar-large {
+    z-index: 1;
+    width: 132px;
+    height: 132px;
+    flex: 0 0 132px;
+    display: grid;
+    place-items: center;
+    border: 5px solid rgba(255,255,255,.95);
+    border-radius: 28px;
+    background: linear-gradient(145deg, #75c66c, #16864d);
+    color: #ffffff;
+    font-size: 40px;
+    font-weight: 800;
+    box-shadow: 0 9px 22px rgba(0, 38, 22, .2), inset 0 1px 0 rgba(255,255,255,.35);
+    box-sizing: border-box;
+  }
 
-    .dispatcher-filter-group {
-      width: 100% !important;
-    }
+  .dispatcher-banner-copy {
+    z-index: 1;
+    min-width: 0;
+  }
 
-    .dispatcher-table-wrap {
-      overflow-x: visible !important;
-    }
+  .dispatcher-banner-copy h2 {
+    margin: 0 0 10px;
+    color: #ffffff;
+    font-size: clamp(24px, 2vw, 34px);
+    line-height: 1.1;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+  }
 
-    .dispatcher-table thead {
-      display: none !important;
-    }
+  .dispatcher-role {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 16px;
+    color: rgba(255,255,255,.95);
+    font-size: 16px;
+    font-weight: 600;
+  }
 
-    .dispatcher-table tbody tr {
-      display: flex !important;
-      flex-direction: column !important;
-      padding: 16px !important;
-      border: 1px solid #E3ECE7 !important;
-      border-radius: 10px !important;
-      margin-bottom: 12px !important;
-      background: #FFFFFF !important;
-    }
+  .dispatcher-active-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    color: #075b32;
+    background: #f7fff9;
+    font-size: 14px;
+    font-weight: 800;
+  }
 
-    .dispatcher-table tbody td {
-      display: flex !important;
-      justify-content: space-between !important;
-      align-items: center !important;
-      padding: 8px 0 !important;
-      border: none !important;
-    }
+  .dispatcher-active-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #16b341;
+    box-shadow: 0 0 0 4px rgba(22,179,65,.12);
+  }
 
-    .dispatcher-table tbody td::before {
-      content: attr(data-label);
+  .dispatcher-banner-art {
+    position: absolute;
+    top: 0;
+    right: 2%;
+    bottom: 0;
+    width: min(43%, 600px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(245,255,248,.9);
+    pointer-events: none;
+  }
+
+  .dispatcher-banner-art svg {
+    filter: drop-shadow(0 4px 5px rgba(0, 30, 16, .12));
+  }
+
+  .dispatcher-details-card {
+    padding: 20px 26px 24px;
+    border: 1px solid #e1eaf0;
+    border-radius: 18px;
+    background: linear-gradient(145deg, #fbfdff, #f7fafc);
+    box-shadow: 0 2px 7px rgba(30, 58, 77, .04);
+    box-sizing: border-box;
+  }
+
+  .dispatcher-details-heading {
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 0 14px;
+    border-bottom: 1px solid #dfe7ed;
+  }
+
+  .dispatcher-details-heading-title {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    color: #0c6b32;
+  }
+
+  .dispatcher-details-heading-title h3 {
+    margin: 0;
+    color: #172b30;
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  .dispatcher-actions-wrap {
+    position: relative;
+    z-index: 3;
+  }
+
+  .dispatcher-actions-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 0 18px;
+    border: 1px solid #b8dfc8;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #087234;
+    font-size: 14px;
+    font-weight: 750;
+    cursor: pointer;
+    box-shadow: 0 3px 9px rgba(18, 95, 51, .08);
+  }
+
+  .dispatcher-actions-button:hover {
+    background: #f3fbf6;
+  }
+
+  .dispatcher-actions-menu {
+    position: absolute;
+    top: calc(100% + 7px);
+    right: 0;
+    min-width: 205px;
+    padding: 6px;
+    border: 1px solid #dce9e2;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 12px 28px rgba(20, 54, 37, .16);
+  }
+
+  .dispatcher-actions-menu button {
+    width: 100%;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #34483d;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .dispatcher-actions-menu button:hover {
+    background: #f0f8f3;
+    color: #087234;
+  }
+
+  .dispatcher-details-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, .95fr);
+    margin-top: 10px;
+  }
+
+  .dispatcher-info-list {
+    padding: 4px 30px 0 0;
+  }
+
+  .dispatcher-info-row {
+    min-height: 52px;
+    display: grid;
+    grid-template-columns: 38px minmax(120px, .75fr) minmax(0, 1.25fr);
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid #e4ebef;
+  }
+
+  .dispatcher-info-icon {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: #eaf6ee;
+    color: #087234;
+  }
+
+  .dispatcher-info-label {
+    color: #425267;
+    font-size: 14px;
+    font-weight: 550;
+  }
+
+  .dispatcher-info-value {
+    color: #182536;
+    font-size: 14px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
+  .dispatcher-status-column {
+    padding: 8px 0 0 34px;
+    border-left: 1px solid #dfe7ed;
+  }
+
+  .dispatcher-status-heading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    color: #087234;
+  }
+
+  .dispatcher-status-heading h4 {
+    margin: 0;
+    color: #172b30;
+    font-size: 17px;
+    font-weight: 800;
+  }
+
+  .dispatcher-duty-card {
+    min-height: 88px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 0 28px;
+    border: 1px solid #d6efe0;
+    border-radius: 17px;
+    background: linear-gradient(110deg, #edf9f1, #e0f3e7);
+    color: #0b6834;
+    font-size: 25px;
+    font-weight: 800;
+    box-sizing: border-box;
+  }
+
+  .dispatcher-duty-card.is-off-duty {
+    border-color: #eadfe0;
+    background: linear-gradient(110deg, #fbf4f4, #f4eaea);
+    color: #8c3939;
+  }
+
+  .dispatcher-duty-dot {
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+    border-radius: 50%;
+    background: #13a63b;
+  }
+
+  .is-off-duty .dispatcher-duty-dot {
+    background: #b44949;
+  }
+
+  .dispatcher-timestamp-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .dispatcher-timestamp-card {
+    min-height: 92px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid #dfe8ee;
+    border-radius: 15px;
+    background: linear-gradient(145deg, #f7fafc, #ffffff);
+    box-sizing: border-box;
+  }
+
+  .dispatcher-timestamp-icon {
+    width: 54px;
+    height: 54px;
+    flex: 0 0 54px;
+    display: grid;
+    place-items: center;
+    border-radius: 15px;
+    background: #e9f5ec;
+    color: #087234;
+  }
+
+  .dispatcher-timestamp-label {
+    margin-bottom: 5px;
+    color: #526174;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .dispatcher-timestamp-value {
+    color: #172536;
+    font-size: 14px;
+    font-weight: 750;
+  }
+
+  .dispatcher-state {
+    min-height: 250px;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    border: 1px solid #e0ebe5;
+    border-radius: 18px;
+    background: #ffffff;
+    color: #617268;
+    text-align: center;
+  }
+
+  .dispatcher-state button {
+    margin-top: 12px;
+    padding: 10px 15px;
+    border: 1px solid #b8dfc8;
+    border-radius: 9px;
+    background: #f3fbf6;
+    color: #087234;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  @media (max-width: 1000px) {
+    .dispatcher-details-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .dispatcher-info-list {
+      padding-right: 0;
+    }
+    .dispatcher-status-column {
+      margin-top: 18px;
+      padding: 20px 0 0;
+      border-left: 0;
+      border-top: 1px solid #dfe7ed;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .dispatcher-page {
+      padding: 12px;
+      gap: 14px;
+    }
+    .dispatcher-profile-card {
+      padding: 10px;
+      gap: 12px;
+      border-radius: 15px;
+    }
+    .dispatcher-banner {
+      min-height: 160px;
+      padding: 20px 16px;
+      gap: 14px;
+      border-radius: 14px;
+    }
+    .dispatcher-avatar-large {
+      width: 74px;
+      height: 74px;
+      flex-basis: 74px;
+      border-width: 3px;
+      border-radius: 18px;
+      font-size: 24px;
+    }
+    .dispatcher-role {
+      margin-bottom: 9px;
+      font-size: 12px;
+    }
+    .dispatcher-active-pill {
+      padding: 6px 10px;
       font-size: 11px;
-      font-weight: 700;
-      color: #6B7280;
-      text-transform: uppercase;
     }
-
-    .dispatcher-table tbody td:first-child::before,
-    .dispatcher-table tbody td:last-child::before {
-      display: none !important;
+    .dispatcher-banner-art {
+      width: 34%;
+      right: -8%;
+      opacity: .5;
+    }
+    .dispatcher-details-card {
+      padding: 14px;
+      border-radius: 14px;
+    }
+    .dispatcher-details-heading-title h3 {
+      font-size: 15px;
+    }
+    .dispatcher-actions-button {
+      min-height: 40px;
+      padding: 0 11px;
+      font-size: 12px;
+    }
+    .dispatcher-info-row {
+      grid-template-columns: 34px minmax(86px, .75fr) minmax(0, 1.15fr);
+      gap: 8px;
+      min-height: 48px;
+    }
+    .dispatcher-info-label,
+    .dispatcher-info-value {
+      font-size: 11px;
+    }
+    .dispatcher-info-icon {
+      width: 32px;
+      height: 32px;
+    }
+    .dispatcher-duty-card {
+      min-height: 68px;
+      margin-bottom: 12px;
+      padding: 0 16px;
+      font-size: 20px;
+    }
+    .dispatcher-timestamp-grid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 9px;
+    }
+    .dispatcher-timestamp-card {
+      min-height: 76px;
+      padding: 10px;
+    }
+    .dispatcher-timestamp-icon {
+      width: 44px;
+      height: 44px;
+      flex-basis: 44px;
+    }
+    .dispatcher-timestamp-label,
+    .dispatcher-timestamp-value {
+      font-size: 12px;
     }
   }
 
-  @media (max-width: 560px) {
-    .dispatcher-sidebar {
-      width: 100% !important;
+  @media (prefers-reduced-motion: reduce) {
+    .dispatcher-actions-button,
+    .dispatcher-actions-menu button {
+      transition: none !important;
     }
   }
 `;
@@ -690,14 +540,16 @@ function getInitials(name = "") {
     .join("");
 }
 
-function formatLastLogin(value: string | null) {
-  if (!value) return "Never";
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
 
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
 }
 
 export default function DispatcherPage() {
@@ -705,43 +557,23 @@ export default function DispatcherPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
-  const [dutyFilter, setDutyFilter] = useState("ALL");
-
-  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Dispatcher | null>(null);
-
-  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const [countdown, setCountdown] = useState(100);
-
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
 
   const fetchDispatchers = useCallback(async (silent = false) => {
     try {
-      if (silent) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
+      if (silent) setRefreshing(true);
+      else setLoading(true);
       setError("");
-
       const data = await dispatcherService.getDispatchers();
-
       setDispatchers(data);
-      setLastUpdated(Date.now());
-      setCountdown(0);
     } catch (err: any) {
       console.error("Failed to load dispatchers:", err);
-
-      const message =
+      setError(
         err?.response?.data?.detail ||
-        err?.response?.data?.error ||
-        "Failed to load dispatchers";
-
-      setError(message);
+          err?.response?.data?.error ||
+          "Failed to load dispatchers",
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -749,470 +581,205 @@ export default function DispatcherPage() {
   }, []);
 
   useEffect(() => {
-    fetchDispatchers(false);
-  }, [fetchDispatchers]);
-
-  useEffect(() => {
-    intervalRef.current = setInterval(() => {
-      if (lastUpdated) {
-        const elapsed = Date.now() - lastUpdated;
-        const percentage = Math.min(
-          100,
-          Math.round((elapsed / REFRESH_MS) * 100),
-        );
-
-        setCountdown(percentage);
-      }
-    }, 1000);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [lastUpdated]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
+    void fetchDispatchers();
+    const timer = window.setInterval(() => {
       if (document.visibilityState === "visible" && document.hasFocus()) {
-        fetchDispatchers(true);
+        void fetchDispatchers(true);
       }
     }, REFRESH_MS);
-
-    return () => clearInterval(timer);
+    return () => window.clearInterval(timer);
   }, [fetchDispatchers]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, statusFilter, dutyFilter]);
-
-  const filteredDispatchers = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    return dispatchers.filter((dispatcher) => {
-      const matchesSearch =
-        !query ||
-        dispatcher.name?.toLowerCase().includes(query) ||
-        dispatcher.email?.toLowerCase().includes(query) ||
-        dispatcher.phone_number?.toLowerCase().includes(query) ||
-        dispatcher.organization_name?.toLowerCase().includes(query);
-
-      const matchesStatus =
-        statusFilter === "ALL" ||
-        (statusFilter === "ACTIVE" && dispatcher.is_active) ||
-        (statusFilter === "INACTIVE" && !dispatcher.is_active);
-
-      const matchesDuty =
-        dutyFilter === "ALL" ||
-        (dutyFilter === "ON_DUTY" && dispatcher.is_on_duty) ||
-        (dutyFilter === "OFF_DUTY" && !dispatcher.is_on_duty);
-
-      return matchesSearch && matchesStatus && matchesDuty;
-    });
-  }, [dispatchers, search, statusFilter, dutyFilter]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredDispatchers.length / PAGE_SIZE),
-  );
-
-  const safePage = Math.min(page, totalPages);
-
-  const pageSlice = filteredDispatchers.slice(
-    (safePage - 1) * PAGE_SIZE,
-    safePage * PAGE_SIZE,
-  );
-
-  function clearFilters() {
-    setSearch("");
-    setStatusFilter("ALL");
-    setDutyFilter("ALL");
-    setPage(1);
-  }
-
-  const hasFilters = search || statusFilter !== "ALL" || dutyFilter !== "ALL";
-
-  function getPageNumbers() {
-    const numbers: number[] = [];
-    const delta = 2;
-
-    for (
-      let i = Math.max(1, safePage - delta);
-      i <= Math.min(totalPages, safePage + delta);
-      i++
-    ) {
-      numbers.push(i);
-    }
-
-    return numbers;
-  }
-
-  function handleManualRefresh() {
-    fetchDispatchers(true);
-    setCountdown(0);
-  }
-
-  function openSidebar(dispatcher: Dispatcher) {
+  const openDetails = (dispatcher: Dispatcher) => {
     setSelected(dispatcher);
-  }
+    setOpenActionsId(null);
+  };
 
-  function closeSidebar() {
-    setSelected(null);
-  }
+  const infoRows = (dispatcher: Dispatcher) => [
+    { label: "Email", value: dispatcher.email || "—", Icon: Mail },
+    { label: "Phone", value: dispatcher.phone_number || "—", Icon: Phone },
+    { label: "Organization", value: dispatcher.organization_name || "—", Icon: Building2 },
+    { label: "Tenant ID", value: dispatcher.tenant_id || "—", Icon: UsersRound },
+    { label: "Dispatcher ID", value: dispatcher.id || "—", Icon: IdCard },
+    { label: "Last Login", value: formatDateTime(dispatcher.last_login), Icon: CalendarDays },
+  ];
 
   return (
-    <div style={styles.page}>
+    <div className="dispatcher-page">
       <style>{localCss}</style>
 
-      <div style={styles.tableCard}>
-        {/* HEADER */}
-        <div className="dispatcher-header" style={styles.cardHeader}>
+      {loading && (
+        <div className="dispatcher-state" role="status">Loading dispatchers…</div>
+      )}
+
+      {!loading && error && (
+        <div className="dispatcher-state" role="alert">
           <div>
-            <span style={styles.badge}>Dashboard</span>
-
-            <p style={styles.subtitle}>
-              Monitor registered dispatchers and organization access
-            </p>
-          </div>
-
-          <div className="dispatcher-header-right" style={styles.headerRight}>
-            <div style={styles.refreshInfo}>
-              {refreshing ? (
-                <>
-                  <RefreshCw
-                    size={12}
-                    style={{ animation: "spin 1s linear infinite" }}
-                  />
-                  <span style={{ color: "#5C9470", fontWeight: 600 }}>
-                    Refreshing…
-                  </span>
-                </>
-              ) : (
-                <span>
-                  Updated{" "}
-                  {lastUpdated
-                    ? new Date(lastUpdated).toLocaleTimeString()
-                    : "—"}
-                </span>
-              )}
-            </div>
-
-            <button
-              className="dispatcher-refresh"
-              style={styles.refreshButton}
-              onClick={handleManualRefresh}
-              disabled={loading || refreshing}
-            >
-              <RefreshCw size={12} />
-              {refreshing ? "Refreshing…" : "Refresh"}
+            <div>{error}</div>
+            <button type="button" onClick={() => void fetchDispatchers()}>
+              Try again
             </button>
           </div>
         </div>
+      )}
 
-        {/* COUNTDOWN */}
-        {!loading && dispatchers.length > 0 && !refreshing && (
-          <div
+      {!loading && !error && dispatchers.length === 0 && (
+        <div className="dispatcher-state">No dispatcher found.</div>
+      )}
+
+      {!loading && !error && dispatchers.map((dispatcher) => (
+        <article className="dispatcher-profile-card" key={dispatcher.id}>
+          <header
+            className="dispatcher-banner has-custom-art"
             style={{
-              width: "100%",
-              height: "3px",
-              background: "#E3ECE7",
+              backgroundImage: `url(${dispatcherBanner})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center center",
             }}
           >
-            <div
-              style={{
-                height: "100%",
-                width: `${countdown}%`,
-                background: "#7AAE8A",
-                transition: "width 1s linear",
-              }}
-            />
-          </div>
-        )}
-
-                {/* DISPATCHER PROFILE */}
-        <div style={{ flex: 1, minHeight: 0 }}>
-          {loading && (
-            <div style={styles.stateCell}>
-              Loading dispatcher...
+            <div className="dispatcher-avatar-large" aria-hidden="true">
+              {getInitials(dispatcher.name)}
             </div>
-          )}
 
-          {!loading && error && (
-            <div style={styles.stateCell}>
-              <div style={{ marginBottom: "10px" }}>{error}</div>
-
-              <button
-                style={{
-                  ...styles.refreshButton,
-                  margin: "0 auto",
-                }}
-                onClick={() => fetchDispatchers(false)}
-              >
-                Retry
-              </button>
+            <div className="dispatcher-banner-copy">
+              <h2>{dispatcher.name || "Dispatcher"}</h2>
+              <div className="dispatcher-role">
+                <UsersRound size={20} />
+                Dispatcher
+              </div>
+              <span className="dispatcher-active-pill">
+                <span
+                  className="dispatcher-active-dot"
+                  style={!dispatcher.is_active ? { background: "#89969a" } : undefined}
+                />
+                {dispatcher.is_active ? "Active" : "Inactive"}
+              </span>
             </div>
-          )}
 
-          {!loading && !error && dispatchers.length === 0 && (
-            <div style={styles.stateCell}>
-              No dispatcher found.
-            </div>
-          )}
+          </header>
 
-          {!loading && !error && dispatchers.length > 0 && (
-            <div style={styles.dispatcherProfileCard}>
-              {(() => {
-                const dispatcher = dispatchers[0];
+          <section className="dispatcher-details-card" aria-label={`Details for ${dispatcher.name}`}>
+            <div className="dispatcher-details-heading">
+              <div className="dispatcher-details-heading-title">
+                <UsersRound size={30} strokeWidth={2.5} />
+                <h3>Dispatcher Details</h3>
+              </div>
 
-                return (
-                  <>
-                    <div style={styles.dispatcherProfileHeader}>
-                      <div style={styles.dispatcherProfileIdentity}>
-                        <div style={styles.dispatcherLargeAvatar}>
-                          {getInitials(dispatcher.name)}
-                        </div>
-
-                        <div>
-                          <div style={styles.dispatcherProfileName}>
-                            {dispatcher.name}
-                          </div>
-
-                          <div style={styles.dispatcherProfileRole}>
-                            Dispatcher
-                          </div>
-                        </div>
-                      </div>
-
-                      <span
-                        style={{
-                          ...styles.dispatcherStatusBadge,
-                          background: dispatcher.is_active
-                            ? "#DDEEE5"
-                            : "#F0F4F2",
-                          color: dispatcher.is_active
-                            ? "#2F4F3E"
-                            : "#6B7280",
-                        }}
-                      >
-                        <span>
-                          •
-                        </span>
-
-                        {dispatcher.is_active
-                          ? "Active"
-                          : "Inactive"}
-                      </span>
-                    </div>
-
-                    <div style={styles.dispatcherProfileGrid}>
-                      <div style={styles.dispatcherInfoBox}>
-                        <div style={styles.dispatcherInfoLabel}>
-                          Email
-                        </div>
-
-                        <div style={styles.dispatcherInfoValue}>
-                          {dispatcher.email || "—"}
-                        </div>
-                      </div>
-
-                      <div style={styles.dispatcherInfoBox}>
-                        <div style={styles.dispatcherInfoLabel}>
-                          Phone
-                        </div>
-
-                        <div style={styles.dispatcherInfoValue}>
-                          {dispatcher.phone_number || "—"}
-                        </div>
-                      </div>
-
-                      <div style={styles.dispatcherInfoBox}>
-                        <div style={styles.dispatcherInfoLabel}>
-                          Organization
-                        </div>
-
-                        <div style={styles.dispatcherInfoValue}>
-                          {dispatcher.organization_name || "—"}
-                        </div>
-                      </div>
-
-                      <div style={styles.dispatcherInfoBox}>
-                        <div style={styles.dispatcherInfoLabel}>
-                          Dispatcher ID
-                        </div>
-
-                        <div style={styles.dispatcherInfoValue}>
-                          {dispatcher.id}
-                        </div>
-                      </div>
-
-                      <div style={styles.dispatcherInfoBox}>
-                        <div style={styles.dispatcherInfoLabel}>
-                          Tenant ID
-                        </div>
-
-                        <div style={styles.dispatcherInfoValue}>
-                          {dispatcher.tenant_id || "—"}
-                        </div>
-                      </div>
-
-                      <div style={styles.dispatcherInfoBox}>
-                        <div style={styles.dispatcherInfoLabel}>
-                          Last Login
-                        </div>
-
-                        <div style={styles.dispatcherInfoValue}>
-                          {formatLastLogin(dispatcher.last_login)}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={styles.dispatcherDutyRow}>
-                      <span
-                        style={{
-                          ...styles.dispatcherDutyBadge,
-                          color: dispatcher.is_on_duty
-                            ? "#2F7A3A"
-                            : "#9B3A3A",
-                        }}
-                      >
-                        <span>
-                          •
-                        </span>
-
-                        {dispatcher.is_on_duty
-                          ? "On Duty"
-                          : "Off Duty"}
-                      </span>
-
-                      <button
-                        className="dispatcher-action"
-                        style={{
-                          ...styles.refreshButton,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "6px",
-                        }}
-                        onClick={() => openSidebar(dispatcher)}
-                      >
-                        <Eye size={13} />
-                        View Details
-                      </button>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          )}
-        </div>
-
-        {/* PAGINATION */}
-        {!loading && !error && (
-          <div style={styles.pagination}>
-            <span style={styles.pageInfo}>
-              Page <strong>{safePage}</strong> of <strong>{totalPages}</strong>{" "}
-              · {filteredDispatchers.length} results
-            </span>
-
-            <div style={styles.pageControls}>
-              <button
-                style={styles.pageButton}
-                onClick={() => setPage(1)}
-                disabled={safePage === 1}
-              >
-                «
-              </button>
-
-              <button
-                style={styles.pageButton}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={safePage === 1}
-              >
-                ‹ Prev
-              </button>
-
-              {getPageNumbers().map((number) => (
+              <div className="dispatcher-actions-wrap">
                 <button
-                  key={number}
-                  style={{
-                    ...styles.pageButton,
-                    ...(number === safePage ? styles.activePage : {}),
-                  }}
-                  onClick={() => setPage(number)}
+                  type="button"
+                  className="dispatcher-actions-button"
+                  aria-expanded={openActionsId === dispatcher.id}
+                  aria-haspopup="menu"
+                  onClick={() => setOpenActionsId((current) => current === dispatcher.id ? null : dispatcher.id)}
                 >
-                  {number}
+                  Actions <ChevronDown size={17} />
                 </button>
-              ))}
-
-              <button
-                style={styles.pageButton}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage === totalPages}
-              >
-                Next ›
-              </button>
-
-              <button
-                style={styles.pageButton}
-                onClick={() => setPage(totalPages)}
-                disabled={safePage === totalPages}
-              >
-                »
-              </button>
+                {openActionsId === dispatcher.id && (
+                  <div className="dispatcher-actions-menu" role="menu">
+                    <button type="button" role="menuitem" onClick={() => openDetails(dispatcher)}>
+                      <Eye size={16} /> View full details
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenActionsId(null);
+                        void fetchDispatchers(true);
+                      }}
+                    >
+                      <RefreshCw size={16} /> {refreshing ? "Refreshing…" : "Refresh dispatcher"}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
 
-      {/* DETAIL SIDEBAR */}
-      {selected && <div style={styles.sidebarOverlay} onClick={closeSidebar} />}
+            <div className="dispatcher-details-grid">
+              <div className="dispatcher-info-list">
+                {infoRows(dispatcher).map(({ label, value, Icon }) => (
+                  <div className="dispatcher-info-row" key={label}>
+                    <span className="dispatcher-info-icon"><Icon size={21} strokeWidth={2.3} /></span>
+                    <span className="dispatcher-info-label">{label}</span>
+                    <span className="dispatcher-info-value">{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <aside className="dispatcher-status-column">
+                <div className="dispatcher-status-heading">
+                  <Activity size={27} strokeWidth={2.5} />
+                  <h4>Status</h4>
+                </div>
+
+                <div className={`dispatcher-duty-card${dispatcher.is_on_duty ? "" : " is-off-duty"}`}>
+                  <span className="dispatcher-duty-dot" />
+                  {dispatcher.is_on_duty ? "On Duty" : "Off Duty"}
+                </div>
+
+                <div className="dispatcher-timestamp-grid">
+                  <div className="dispatcher-timestamp-card">
+                    <span className="dispatcher-timestamp-icon"><CalendarDays size={34} /></span>
+                    <span>
+                      <div className="dispatcher-timestamp-label">Account Created</div>
+                      <div className="dispatcher-timestamp-value">{formatDate(dispatcher.created_at)}</div>
+                    </span>
+                  </div>
+                  <div className="dispatcher-timestamp-card">
+                    <span className="dispatcher-timestamp-icon"><Clock3 size={34} /></span>
+                    <span>
+                      <div className="dispatcher-timestamp-label">Last Updated</div>
+                      <div className="dispatcher-timestamp-value">{formatDateTime(dispatcher.updated_at)}</div>
+                    </span>
+                  </div>
+                </div>
+              </aside>
+            </div>
+          </section>
+        </article>
+      ))}
 
       {selected && (
-        <div className="dispatcher-sidebar" style={styles.sidebar}>
-          <div style={styles.sidebarHeader}>
-            <h3 style={styles.sidebarTitle}>Dispatcher Details</h3>
-
-            <button style={styles.closeButton} onClick={closeSidebar}>
-              ×
-            </button>
-          </div>
-
-          <div style={styles.sidebarBody}>
-            <div style={styles.detailHero}>
-              <div style={styles.detailAvatar}>
-                {getInitials(selected.name)}
-              </div>
-
-              <div>
-                <div style={styles.detailName}>{selected.name}</div>
-
-                <div style={styles.detailMeta}>
-                  {selected.is_active
-                    ? "Active Dispatcher"
-                    : "Inactive Dispatcher"}
-                </div>
-              </div>
+        <>
+          <div
+            onClick={() => setSelected(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 999, background: "rgba(20,40,30,.28)" }}
+          />
+          <aside
+            className="dispatcher-sidebar"
+            style={{
+              position: "fixed", top: 0, right: 0, zIndex: 1000, width: "min(440px, 100vw)", height: "100vh",
+              padding: 24, boxSizing: "border-box", overflowY: "auto", background: "#fff",
+              boxShadow: "-8px 0 30px rgba(20,54,37,.16)", fontFamily: "'Inter', sans-serif",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
+              <h3 style={{ margin: 0, color: "#0b6834", fontSize: 18 }}>Dispatcher Details</h3>
+              <button type="button" onClick={() => setSelected(null)} aria-label="Close dispatcher details" style={{ border: 0, background: "transparent", color: "#526174", fontSize: 28, cursor: "pointer" }}>×</button>
             </div>
-
-            <p style={styles.sectionTitle}>Dispatcher Information</p>
-
-            {[
-              ["ID", selected.id],
-              ["Email", selected.email],
-              ["Phone", selected.phone_number || "—"],
-              ["Organization", selected.organization_name || "—"],
-              ["Tenant ID", selected.tenant_id],
-              ["Status", selected.is_active ? "Active" : "Inactive"],
-              ["Duty Status", selected.is_on_duty ? "On Duty" : "Off Duty"],
-              ["Last Login", formatLastLogin(selected.last_login)],
-            ].map(([label, value]) => (
-              <div key={label} style={styles.detailRow}>
-                <span style={styles.detailLabel}>{label}</span>
-
-                <span style={styles.detailValue}>{value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+            <div style={{ display: "grid", gap: 14 }}>
+              {[
+                ["Name", selected.name],
+                ["Role", "Dispatcher"],
+                ["Email", selected.email],
+                ["Phone", selected.phone_number || "—"],
+                ["Organization", selected.organization_name || "—"],
+                ["Tenant ID", selected.tenant_id || "—"],
+                ["Dispatcher ID", selected.id],
+                ["Account Status", selected.is_active ? "Active" : "Inactive"],
+                ["Duty Status", selected.is_on_duty ? "On Duty" : "Off Duty"],
+                ["Last Login", formatDateTime(selected.last_login)],
+                ["Account Created", formatDateTime(selected.created_at)],
+                ["Last Updated", formatDateTime(selected.updated_at)],
+              ].map(([label, value]) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 18, paddingBottom: 10, borderBottom: "1px solid #edf2ef", fontSize: 13 }}>
+                  <span style={{ color: "#64748b" }}>{label}</span>
+                  <strong style={{ maxWidth: "62%", color: "#172b24", textAlign: "right", overflowWrap: "anywhere" }}>{value}</strong>
+                </div>
+              ))}
+            </div>
+          </aside>
+        </>
       )}
     </div>
   );

@@ -20,7 +20,9 @@ export interface TechnicianGpsLocation {
 
 interface TechnicianGpsState {
   location: TechnicianGpsLocation | null;
+  maxAgeMs: number;
   setLocation: (location: TechnicianGpsLocation) => void;
+  setMaxAgeSeconds: (seconds: number) => void;
 }
 
 export const isValidTechnicianGpsFix = (
@@ -41,15 +43,20 @@ export const isValidTechnicianGpsFix = (
     fix.accuracy <= GPS_AVAILABILITY_MAX_ACCURACY_METERS &&
     Number.isFinite(fix.timestamp) &&
     ageMs >= -30_000 &&
-    ageMs <= TECHNICIAN_GPS_MAX_AGE_MS
+    ageMs <= useTechnicianGpsStore.getState().maxAgeMs
   );
 };
 
 export const useTechnicianGpsStore =
   create<TechnicianGpsState>((set) => ({
     location: null,
+    maxAgeMs: TECHNICIAN_GPS_MAX_AGE_MS,
     setLocation: (location) => set({ location }),
+    setMaxAgeSeconds: (seconds) => set({ maxAgeMs: Math.min(Math.max(seconds, 30), 120) * 1000 }),
   }));
+
+export const getTechnicianGpsMaxAgeMs = () =>
+  useTechnicianGpsStore.getState().maxAgeMs;
 
 export const publishTechnicianGpsFix = (
   technicianId: string,

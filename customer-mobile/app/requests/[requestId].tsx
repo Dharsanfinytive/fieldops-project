@@ -30,6 +30,7 @@ import {
   formatDate,
   formatDateTime,
   formatMoney,
+  isWithinCancellationWindow,
   normalizedStatus,
 } from "../../src/utils/format";
 import { colors } from "../../src/theme";
@@ -405,7 +406,7 @@ export default function ServiceRequestDetailScreen() {
     return (
       <Screen>
         <ErrorState message={error || "This service request could not be found."} onRetry={() => void load()} />
-        <AppButton title="Back to requests" onPress={() => router.replace("/(tabs)/requests")} kind="secondary" />
+        <AppButton title="Back to requests" onPress={() => router.back()} kind="secondary" />
       </Screen>
     );
   }
@@ -620,12 +621,12 @@ export default function ServiceRequestDetailScreen() {
             </View>
           ) : null}
 
-          {(canEditRequest(request.status, job?.status, Boolean(resolvedJobId)) || canCancelRequest(request.status, job?.status, Boolean(resolvedJobId))) ? (
+          {(canEditRequest(request.status, job?.status, Boolean(resolvedJobId)) || (canCancelRequest(request.status, job?.status, Boolean(resolvedJobId)) && isWithinCancellationWindow(request.created_at))) ? (
             <View style={styles.requestActions}>
               {canEditRequest(request.status, job?.status, Boolean(resolvedJobId)) ? (
                 <AppButton title="Edit request" icon="create-outline" kind="secondary" onPress={() => router.push({ pathname: "/requests/edit/[requestId]", params: { requestId: String(request.id) } })} />
               ) : null}
-              {canCancelRequest(request.status, job?.status, Boolean(resolvedJobId)) ? (
+              {canCancelRequest(request.status, job?.status, Boolean(resolvedJobId)) && isWithinCancellationWindow(request.created_at) ? (
                 <AppButton title="Cancel request" icon="close-circle-outline" kind="danger" onPress={cancel} loading={busy} />
               ) : null}
             </View>

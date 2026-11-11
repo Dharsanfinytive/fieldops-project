@@ -6,8 +6,11 @@ import {
   PanResponder,
   Animated,
   useWindowDimensions,
+  BackHandler,
+  Platform,
+  ToastAndroid,
 } from "react-native";
-import { Tabs, router } from "expo-router";
+import { Tabs, router, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "../../src/auth/authStore";
 import { colors } from "../../src/theme";
@@ -19,6 +22,7 @@ const BOTTOM_SAFE_SPACE = 100;
 
 export default function CustomerTabsLayout() {
   const { initialized, user } = useAuthStore();
+  const pathname = usePathname();
   const { width: screenWidth, height: screenHeight } =
     useWindowDimensions();
 
@@ -113,9 +117,28 @@ export default function CustomerTabsLayout() {
     }
   }, [initialized, user]);
 
+  useEffect(() => {
+    if (!user || Platform.OS !== "android" || pathname !== "/") return;
+    let lastBackPress = 0;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      // Preserve real navigation history; use the two-press exit only at the app root.
+      if (router.canGoBack()) return false;
+      const now = Date.now();
+      if (now - lastBackPress < 2000) {
+        BackHandler.exitApp();
+      } else {
+        lastBackPress = now;
+        ToastAndroid.show("Press back again to exit", ToastAndroid.SHORT);
+      }
+      return true;
+    });
+    return () => subscription.remove();
+  }, [user, pathname]);
+
   return (
     <View style={styles.container}>
       <Tabs
+        backBehavior="fullHistory"
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: colors.brand,
