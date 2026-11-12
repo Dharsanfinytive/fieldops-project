@@ -1,12 +1,13 @@
 
-import { useEffect, useState } from "react";
-import { ImageBackground } from "react-native";
-import { StatusBar } from "expo-status-bar";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Redirect } from "expo-router";
 import { useAuthStore } from "../src/auth/authStore";
+import { AnimatedLaunchScreen } from "../src/components/AnimatedLaunchScreen";
 
 export default function IndexScreen() {
-  const [isReady, setIsReady] = useState(false);
+  const [sessionRestored, setSessionRestored] = useState(false);
+  const [launchComplete, setLaunchComplete] = useState(false);
+  const restoreStarted = useRef(false);
 
   const restoreSession = useAuthStore(
     (state) => state.restoreSession
@@ -17,52 +18,29 @@ export default function IndexScreen() {
   const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
+    if (restoreStarted.current) return;
+    restoreStarted.current = true;
     let mounted = true;
-    let sessionRestored = false;
-    let minimumSplashElapsed = false;
-
-    const finishIfReady = () => {
-      if (
-        mounted &&
-        sessionRestored &&
-        minimumSplashElapsed
-      ) {
-        setIsReady(true);
-      }
-    };
-
-    const splashTimer = setTimeout(() => {
-      minimumSplashElapsed = true;
-      finishIfReady();
-    }, 1500);
 
     void restoreSession()
       .catch(() => undefined)
       .finally(() => {
-        sessionRestored = true;
-        finishIfReady();
+        if (mounted) setSessionRestored(true);
       });
 
     return () => {
       mounted = false;
-      clearTimeout(splashTimer);
     };
   }, [restoreSession]);
 
-  if (!isReady) {
+  const finishLaunch = useCallback(() => setLaunchComplete(true), []);
+
+  if (!launchComplete) {
     return (
-      <ImageBackground
-        source={require("../assets/images/fieldops-splash.png")}
-        resizeMode="cover"
-        style={{
-          flex: 1,
-          backgroundColor: "#002A20",
-        }}
-        accessible
-        accessibilityLabel="FieldOps Commander splash screen"
-      >
-        <StatusBar style="light" />
-      </ImageBackground>
+      <AnimatedLaunchScreen
+        readyToExit={sessionRestored}
+        onExitComplete={finishLaunch}
+      />
     );
   }
 

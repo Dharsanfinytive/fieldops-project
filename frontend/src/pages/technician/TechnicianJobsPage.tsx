@@ -55,6 +55,7 @@ import {
 import {
 
   getTechnicianJobs,
+  getTechnicianJobOffers,
 
   acceptTechnicianJob,
 
@@ -550,6 +551,29 @@ const hasValidCoordinates = (job: any): boolean => {
 
 const STARTED_JOB_STATUSES = ["EN_ROUTE", "ON_SITE", "IN_PROGRESS", "PAUSED"];
 
+const TERMINAL_JOB_STATUSES = [
+  "COMPLETED", "CLOSED", "CANCELLED", "CANCELED",
+  "REJECTED", "REJECTED_BY_TECHNICIAN", "TIMEOUT", "TIMED_OUT",
+];
+
+const getJobScheduleKey = (job: any): string => {
+  const scheduledDate = String(job?.preferred_service_date || job?.scheduled_at || "").slice(0, 10);
+  const scheduledTime = String(job?.preferred_service_time || "23:59:59").slice(0, 8);
+  return `${scheduledDate || "9999-12-31"}T${scheduledTime}`;
+};
+
+const isJobSequenceStartAllowed = (job: any, jobs: any[]): boolean => {
+  if (typeof job?.can_start === "boolean") return job.can_start;
+  const earliestOpenJob = jobs
+    .filter((candidate) => !TERMINAL_JOB_STATUSES.includes(normalizeStatus(candidate.status)))
+    .slice()
+    .sort((first, second) =>
+      getJobScheduleKey(first).localeCompare(getJobScheduleKey(second)) ||
+      Number(first.id) - Number(second.id)
+    )[0];
+  return Number(earliestOpenJob?.id) === Number(job?.id);
+};
+
 export default function TechnicianJobsPage() {
 
   const [jobs, setJobs] = useState<any[]>([]);
@@ -615,7 +639,7 @@ export default function TechnicianJobsPage() {
     if (rejectModal !== null) return;
 
     try {
-      const response = await getTechnicianJobs();
+      const response = await getTechnicianJobOffers();
       const list = Array.isArray(response?.data) ? response.data : [];
 
       const assignedJob = list.find((job: any) => {
@@ -643,10 +667,18 @@ export default function TechnicianJobsPage() {
     if (!silent) setLoading(true);
 
     try {
-      const response = await getTechnicianJobs();
-      const list = Array.isArray(response?.data) ? response.data : [];
+      const [jobsResponse, offersResponse] = await Promise.all([
+        getTechnicianJobs(),
+        getTechnicianJobOffers(),
+      ]);
+      const list = Array.isArray(jobsResponse?.data) ? jobsResponse.data : [];
+      const offers = Array.isArray(offersResponse?.data) ? offersResponse.data : [];
+      const orderedJobs = list.slice().sort((first, second) =>
+        getJobScheduleKey(first).localeCompare(getJobScheduleKey(second)) ||
+        Number(first.id) - Number(second.id)
+      );
 
-      setJobs(list);
+      setJobs(orderedJobs);
       setJobsError(null);
       setLastJobsSync(new Date());
 
@@ -657,7 +689,7 @@ export default function TechnicianJobsPage() {
         return;
       }
 
-      const pendingAssigned = list.find((job: any) => {
+      const pendingAssigned = offers.find((job: any) => {
         const jobId = Number(job?.id);
 
         return (
@@ -805,6 +837,11 @@ const assignmentDistanceDisplay = !isValidCustomerLocation
     );
 
     if (anotherJobIsStarted) return;
+
+    if (!isJobSequenceStartAllowed(currentJob, jobs)) {
+      alert("Complete the earlier scheduled job before starting this one.");
+      return;
+    }
 
     if (normalizeStatus(currentJob?.status) !== "ACCEPTED") {
 
@@ -1114,6 +1151,9 @@ const assignmentDistanceDisplay = !isValidCustomerLocation
         STARTED_JOB_STATUSES.includes(normalizeStatus(candidate.status)),
     );
 
+    const blockedByEarlierScheduledJob =
+      st === "ACCEPTED" && !isJobSequenceStartAllowed(job, jobs);
+
     if (st === "ASSIGNED" || st === "ACTIVE") {
 
       btns.push(
@@ -1224,21 +1264,21 @@ const assignmentDistanceDisplay = !isValidCustomerLocation
 
           aria-label={`Start job ${job.id}`}
 
-          disabled={isStarting || anotherJobIsStarted}
+          disabled={isStarting || anotherJobIsStarted || blockedByEarlierScheduledJob}
 
           style={{
 
             ...s.btn("#DBEAFE", "#1E40AF"),
 
-            opacity: isStarting || anotherJobIsStarted ? 0.55 : 1,
+            opacity: isStarting || anotherJobIsStarted || blockedByEarlierScheduledJob ? 0.55 : 1,
 
-            cursor: isStarting || anotherJobIsStarted ? "not-allowed" : "pointer",
+            cursor: isStarting || anotherJobIsStarted || blockedByEarlierScheduledJob ? "not-allowed" : "pointer",
 
           }}
 
           onClick={() => handleStart(job.id)}
 
-          title={anotherJobIsStarted ? "Finish the job already in progress before starting another." : undefined}
+          title={anotherJobIsStarted ? "Finish the job already in progress before starting another." : blockedByEarlierScheduledJob ? "Complete the earlier scheduled job first." : undefined}
 
         >
 
@@ -1261,6 +1301,10 @@ const assignmentDistanceDisplay = !isValidCustomerLocation
           ) : anotherJobIsStarted ? (
 
             "Finish Current Job"
+
+          ) : blockedByEarlierScheduledJob ? (
+
+            "Start Earlier Job First"
 
           ) : (
 

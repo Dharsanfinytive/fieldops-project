@@ -59,7 +59,7 @@ from ..auth.rbac import Permission
 from ..auth.password import hash_password, verify_password
 
 from ..models import (
-    Job, Technician, InAppNotification, GPSPing, CustomerFeedback,
+    Job, JobAssignment, Technician, InAppNotification, GPSPing, CustomerFeedback,
     TechnicianProfile, JobMessage, JobPaymentStatus,
 )
 
@@ -1205,6 +1205,33 @@ def _get_assigned_jobs_query(
 
     )
 
+
+_TERMINAL_SEQUENCE_STATUSES = {
+    "COMPLETED", "CLOSED", "CANCELLED", "CANCELED",
+    "REJECTED", "REJECTED_BY_TECHNICIAN", "TIMEOUT", "TIMED_OUT",
+}
+
+
+def _job_schedule_order_key(job: Job) -> tuple[str, str, int]:
+    scheduled_date = getattr(job, "preferred_service_date", None)
+    scheduled_time = getattr(job, "preferred_service_time", None)
+    date_key = scheduled_date.isoformat() if hasattr(scheduled_date, "isoformat") else str(scheduled_date or "9999-12-31")
+    time_key = scheduled_time.isoformat() if hasattr(scheduled_time, "isoformat") else str(scheduled_time or "23:59:59")
+    return date_key, time_key, int(job.id)
+
+
+def _get_technician_earliest_open_job(db: Session, technician_id: int) -> Optional[Job]:
+    """Return the earliest scheduled nonterminal job assigned to a technician."""
+    open_jobs = db.query(Job).filter(
+        Job.assigned_technician_id == technician_id,
+    ).all()
+    open_jobs = [
+        job for job in open_jobs
+        if str(job.status or "").strip().upper().replace("-", "_").replace(" ", "_")
+        not in _TERMINAL_SEQUENCE_STATUSES
+    ]
+    return min(open_jobs, key=_job_schedule_order_key) if open_jobs else None
+
 @router.get("/jobs", response_model=list[TechnicianJobResponse])
 
 async def get_assigned_jobs(
@@ -1217,7 +1244,7 @@ async def get_assigned_jobs(
 
 ):
 
-    """List jobs assigned to the current technician."""
+    """List assigned jobs and active broadcast offers for the technician."""
 
     query = _get_assigned_jobs_query(db, current_user.user_id, current_user.tenant_id)
 
@@ -1235,9 +1262,24 @@ async def get_assigned_jobs(
 
         )
 
-    jobs = query.order_by(Job.created_at.desc()).all()
+    # My Jobs contains jobs the technician has accepted or started. Pending
+    # assignment/offer cards are served separately to the acceptance popup.
+    query = query.filter(
+        ~func.upper(func.trim(Job.status)).in_(
+            ["ASSIGNED", "AWAITING_ACCEPTANCE", "ACTIVE", "PENDING", "QUEUED", "PLANNED"]
+        )
+    )
+
+    jobs = query.all()
     if not jobs:
         return []
+
+    tech = _get_tech_for_user(db, current_user.user_id, current_user.tenant_id)
+    earliest_open_job = (
+        _get_technician_earliest_open_job(db, tech.technician_id)
+        if tech else None
+    )
+    jobs.sort(key=_job_schedule_order_key)
 
     job_ids = [job.id for job in jobs]
     request_rows = (
@@ -1256,12 +1298,72 @@ async def get_assigned_jobs(
             else []
         )
 
-    return [
+    response_jobs = [
         TechnicianJobResponse.model_validate(job).model_copy(
-            update={"images": images_by_job.get(job.id, [])}
+            update={
+                "images": images_by_job.get(job.id, []),
+                "can_start": bool(
+                    earliest_open_job
+                    and earliest_open_job.id == job.id
+                    and str(job.status or "").strip().upper() == "ACCEPTED"
+                ),
+            }
         )
         for job in jobs
     ]
+    return response_jobs
+
+
+@router.get("/job-offers", response_model=list[TechnicianJobResponse])
+async def get_technician_job_offers(
+    current_user: AuthenticatedUser = Depends(require_permission(Permission.JOBS_VIEW_OWN)),
+    db: Session = Depends(get_db),
+):
+    """Return pending offers and legacy assigned jobs awaiting acceptance."""
+    tech = _get_tech_for_user(db, current_user.user_id, current_user.tenant_id)
+    if not tech:
+        return []
+
+    offered_rows = (
+        db.query(Job, JobAssignment.assigned_at)
+        .join(JobAssignment, JobAssignment.job_id == Job.id)
+        .filter(
+            JobAssignment.technician_id == tech.technician_id,
+            JobAssignment.tenant_id == str(tech.tenant_id),
+            JobAssignment.status == "PENDING",
+            JobAssignment.assigned_at.is_not(None),
+            Job.assigned_technician_id.is_(None),
+            func.upper(func.trim(Job.status)).in_(
+                ["CREATED", "QUEUED", "UNASSIGNED", "OFFERED"]
+            ),
+        )
+        .all()
+    )
+    legacy_pending = (
+        db.query(Job)
+        .filter(
+            Job.assigned_technician_id == tech.technician_id,
+            func.upper(func.trim(Job.status)).in_(
+                ["ASSIGNED", "AWAITING_ACCEPTANCE", "ACTIVE"]
+            ),
+        )
+        .all()
+    )
+
+    response_by_job_id = {
+        job.id: TechnicianJobResponse.model_validate(job)
+        for job in legacy_pending
+    }
+    for job, offer_created_at in offered_rows:
+        response_by_job_id[job.id] = TechnicianJobResponse.model_validate(job).model_copy(
+            update={
+                # Match the established mobile acceptance-popup contract while
+                # keeping the persisted job unassigned until atomic acceptance.
+                "status": "ASSIGNED",
+                "assigned_at": offer_created_at,
+            }
+        )
+    return list(response_by_job_id.values())
 
 @router.get("/jobs/history", response_model=list[TechnicianJobResponse])
 
@@ -1469,8 +1571,16 @@ async def get_job_detail(
         if isinstance(images, list)
         else []
     )
+    earliest_open_job = _get_technician_earliest_open_job(db, tech.technician_id)
     return TechnicianJobResponse.model_validate(job).model_copy(
-        update={"images": job_images}
+        update={
+            "images": job_images,
+            "can_start": bool(
+                earliest_open_job
+                and earliest_open_job.id == job.id
+                and str(job.status or "").strip().upper() == "ACCEPTED"
+            ),
+        }
     )
 
 
@@ -1652,8 +1762,35 @@ async def accept_job(
 
         )
 
-    # Keep assignment-based authorization for cross-tenant jobs.
-    # Lock the row to prevent concurrent duplicate acceptance.
+    # A broadcast job is claimed only when this technician accepts. The
+    # database conditional UPDATE is the winner election across workers.
+    unassigned_job = (
+        db.query(Job)
+        .filter(Job.id == job_id, Job.assigned_technician_id.is_(None))
+        .first()
+    )
+    if unassigned_job is not None:
+        from ..services.atomic_assignment_service import (
+            AssignmentConflict,
+            accept_broadcast_offer,
+        )
+
+        try:
+            accept_broadcast_offer(
+                db,
+                job_id=job_id,
+                tenant_id=str(current_user.tenant_id),
+                technician_id=int(tech.technician_id),
+            )
+        except AssignmentConflict as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    # Lock the winning job row for the existing workload, customer chat,
+    # and accepted-status side effects. Cross-tenant assigned jobs remain
+    # accessible only to their recorded technician.
     job = (
         db.query(Job)
         .filter(
@@ -1665,6 +1802,15 @@ async def accept_job(
     )
 
     if not job:
+        already_claimed = db.query(Job.id).filter(
+            Job.id == job_id,
+            Job.assigned_technician_id.is_not(None),
+        ).first()
+        if already_claimed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This job has already been assigned to another technician",
+            )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Job not found or not assigned to you",
@@ -1800,7 +1946,7 @@ async def accept_job(
 
         InAppNotification.tech_id.in_(recipient_ids),
 
-        InAppNotification.type == "JOB_ASSIGNED",
+        InAppNotification.type.in_(("JOB_ASSIGNED", "JOB_OFFERED")),
 
     ).update(
 
@@ -1850,7 +1996,7 @@ async def accept_job(
             InAppNotification.tenant_id == current_user.tenant_id,
             InAppNotification.job_id == str(job_id),
             InAppNotification.recipient_id == str(tech.tech_id or tech.technician_id),
-            InAppNotification.type == "JOB_ASSIGNED",
+            InAppNotification.type.in_(("JOB_ASSIGNED", "JOB_OFFERED")),
         )
         .order_by(InAppNotification.created_at.desc())
         .first()
@@ -2354,6 +2500,23 @@ async def start_job(
                 "Job must be ACCEPTED before starting travel. "
                 f"Current status: {job.status}"
             ),
+        )
+
+    earliest_open_job = _get_technician_earliest_open_job(
+        db,
+        tech.technician_id,
+    )
+    if earliest_open_job is not None and earliest_open_job.id != job.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "JOB_SEQUENCE_BLOCKED",
+                "message": (
+                    f"Start the earlier scheduled job #{earliest_open_job.id} first. "
+                    "Complete it before starting a later job."
+                ),
+                "blocking_job_id": earliest_open_job.id,
+            },
         )
 
     old_status = job.status

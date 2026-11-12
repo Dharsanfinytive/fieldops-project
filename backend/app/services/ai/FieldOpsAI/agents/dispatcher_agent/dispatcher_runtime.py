@@ -23,6 +23,7 @@ Important:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import json
 import uuid
@@ -296,6 +297,7 @@ class DispatcherRuntime:
             "planning_required": False,
             "replanning_required": False,
             "error": None,
+            "offers_broadcast": True,
         }
 
         logger.info(
@@ -309,7 +311,45 @@ class DispatcherRuntime:
             ],
         )
 
-        result = await self.graph.start_dispatch(state)
+        # Persist and publish every eligible offer before LangGraph enters its
+        # response wait. PostgreSQL, via accept_broadcast_offer, selects the
+        # winner; candidate rank does not reserve the job.
+        prepared_state = dict(job_state)
+        prepared_state["dispatch_attempt_id"] = dispatch_attempt_id
+        prepared_state["_dispatch_state"] = DispatcherGraph._persistable_state(state)
+        offer_results = await asyncio.gather(
+            *(
+                self.offer_job(
+                    {**prepared_state, "current_index": index},
+                    int(candidate["technician_id"]),
+                )
+                for index, candidate in enumerate(all_candidates)
+            ),
+            return_exceptions=True,
+        )
+        successful_ids = {
+            int(candidate["technician_id"])
+            for candidate, outcome in zip(all_candidates, offer_results)
+            if not isinstance(outcome, Exception)
+        }
+        if not successful_ids:
+            result = {
+                **state,
+                "offers_broadcast": True,
+                "error": "Unable to create an offer for any eligible technician",
+                "next_action": "END",
+            }
+            for outcome in offer_results:
+                if isinstance(outcome, Exception):
+                    logger.exception("Broadcast offer creation failed", exc_info=outcome)
+        else:
+            state["candidates"] = [
+                candidate for candidate in all_candidates
+                if int(candidate["technician_id"]) in successful_ids
+            ]
+            state["all_candidates"] = state["candidates"]
+            state["offers_broadcast"] = True
+            result = await self.graph.start_dispatch(state)
         self._persist_dispatch_state(job_id, result)
         if result.get("error"):
             logger.error(
@@ -358,6 +398,22 @@ class DispatcherRuntime:
             persisted = getattr(job, "dispatch_state", None) if job else None
         if isinstance(persisted, dict) and persisted:
             current_id = persisted.get("current_technician_id")
+            if event == "TECHNICIAN_ACCEPTED" and persisted.get("offers_broadcast") and technician_id is not None:
+                offered_ids = {
+                    int(candidate["technician_id"])
+                    for candidate in persisted.get("all_candidates", [])
+                    if isinstance(candidate, dict) and str(candidate.get("technician_id", "")).isdigit()
+                }
+                if int(technician_id) in offered_ids:
+                    with SessionLocal() as db:
+                        winner = db.query(models.Job).filter(
+                            models.Job.id == job_id,
+                            models.Job.assigned_technician_id == int(technician_id),
+                            models.Job.status.in_(("ASSIGNED", "ACCEPTED")),
+                        ).first()
+                    if winner is not None:
+                        persisted = {**persisted, "current_technician_id": int(technician_id)}
+                        current_id = int(technician_id)
             if technician_id is not None and current_id != int(technician_id):
                 logger.info(
                     "Ignoring stale/duplicate dispatcher response job_id=%s technician_id=%s current_technician_id=%s outcome=ignored",
@@ -717,24 +773,28 @@ class DispatcherRuntime:
             if str(getattr(technician, "tenant_id", None)) != str(getattr(job, "tenant_id", None)):
                 raise RuntimeError("planning_candidate_tenant_mismatch")
 
-            # ----------------------------------------------------------
-            # Assign job using the existing behavior.
-            # ----------------------------------------------------------
-
-            logger.info(
-                "ASSIGNING TECHNICIAN IN MEMORY | "
-                "job=%s | technician=%s",
-                job_id,
-                technician_id,
+            # Persist an active offer without reserving the job. PostgreSQL
+            # selects the winner later in accept_broadcast_offer.
+            offer = (
+                db.query(models.JobAssignment)
+                .filter(
+                    models.JobAssignment.job_id == job_id,
+                    models.JobAssignment.technician_id == technician.technician_id,
+                    models.JobAssignment.tenant_id == technician.tenant_id,
+                    models.JobAssignment.status == "PENDING",
+                )
+                .first()
             )
-
-            job.assigned_technician_id = technician.technician_id
-
-            if hasattr(job, "status"):
-                job.status = "ASSIGNED"
-
-            if hasattr(job, "assigned_at"):
-                job.assigned_at = datetime.now(timezone.utc)
+            if offer is None:
+                db.add(models.JobAssignment(
+                    job_id=job_id,
+                    tenant_id=str(technician.tenant_id),
+                    technician_id=technician.technician_id,
+                    rank=int(job_state.get("current_index", 0)) + 1,
+                    status="PENDING",
+                    assigned_at=datetime.now(timezone.utc),
+                    is_current=True,
+                ))
 
             logger.info(
                 "JOB STATUS UPDATED | "
@@ -797,14 +857,14 @@ class DispatcherRuntime:
                     job_id=job_id,
                     technician_id=technician.technician_id,
                     technician_name=technician.technician_name,
-                    status="ASSIGNED",
+                    status="OFFERED",
                     dispatch_attempt_id=job_state.get("dispatch_attempt_id"),
                 )
 
                 print(
                     f"PLANNING ASSIGNMENT | Job ID: {job_id} | "
                     f"Technician: {technician.technician_name or 'Unknown'} "
-                    f"(ID: {technician.technician_id}) | Status: ASSIGNED",
+                    f"(ID: {technician.technician_id}) | Status: OFFERED",
                     flush=True,
                 )
 
@@ -884,33 +944,6 @@ class DispatcherRuntime:
                 ),
             )
 
-            if (
-                getattr(
-                    fresh_job,
-                    "assigned_technician_id",
-                    None,
-                )
-                != technician_id
-            ):
-                raise ValueError(
-                    f"Assignment verification failed for job {job_id}"
-                )
-
-            if (
-                str(
-                    getattr(
-                        fresh_job,
-                        "status",
-                        "",
-                    )
-                    or ""
-                ).upper()
-                != "ASSIGNED"
-            ):
-                raise ValueError(
-                    f"Job {job_id} status verification failed"
-                )
-
             logger.info(
                 "offer_created job_id=%s technician_id=%s dispatch_attempt_id=%s notification_id=%s outcome=persisted",
                 job_id,
@@ -920,56 +953,13 @@ class DispatcherRuntime:
             )
 
             logger.info(
-                "offer_assignment_reservation_verified job_id=%s "
-                "technician_id=%s status=%s",
-                job_id,
-                technician_id,
-                getattr(fresh_job, "status", None),
-            )
-            logger.info(
-                "OFFER RESERVATION PERSISTED | job_id=%s | "
-                "technician_id=%s | status=%s",
+                "BROADCAST OFFER PERSISTED | job_id=%s | "
+                "technician_id=%s | job_status=%s",
                 fresh_job.id,
                 fresh_job.assigned_technician_id,
                 fresh_job.status,
             )
 
-
-            # ----------------------------------------------------------
-            # Acceptance timer
-            # ----------------------------------------------------------
-
-            try:
-                redis_client = get_redis_client()
-
-                timer_started = TimerService.start_timer(
-                    redis_client=redis_client,
-                    job_id=str(job.id),
-                    tech_id=str(technician.tech_id),
-                    duration_seconds=(
-                        TimerService.ACCEPTANCE_DURATION_SECONDS
-                    ),
-                )
-
-                logger.info(
-                    "ACCEPTANCE TIMER RESULT | "
-                    "job=%s | technician=%s | started=%s",
-                    job_id,
-                    technician_id,
-                    timer_started,
-                )
-
-            except Exception:
-                logger.exception(
-                    "ACCEPTANCE TIMER FAILED | "
-                    "job=%s | technician=%s",
-                    job_id,
-                    technician_id,
-                )
-
-                # Timer failure does not undo the committed assignment.
-                # The application needs another timeout mechanism if
-                # timer creation fails.
 
         if notification is not None:
             try:
@@ -1052,7 +1042,7 @@ class DispatcherRuntime:
         dispatch_attempt_id: str = "",
     ) -> Any | None:
         """
-        Create the JOB_ASSIGNED notification expected by
+        Create the active job offer notification expected by
         the existing technician portal.
         """
 
@@ -1108,10 +1098,10 @@ class DispatcherRuntime:
             group_key=assignment_group_key,
             notification_metadata={"dispatch_attempt_id": dispatch_attempt_id},
             job_id=str(job.id),
-            type="JOB_ASSIGNED",
-            title="New Job Assigned",
+            type="JOB_OFFERED",
+            title="New Job Offer",
             body=(
-                f"You have been assigned to Job #{job.id}: "
+                f"A service request is available: Job #{job.id}: "
                 f"{getattr(job, 'service_type', None) or 'Service Request'} "
                 f"at "
                 f"{getattr(job, 'location', None) or 'Customer location'}."

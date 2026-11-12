@@ -297,6 +297,7 @@ accepted rejected timeout
             "attempted_technician_ids", "rejected_technician_ids", "event",
             "next_action", "assigned_technician_id", "planning_required",
             "replanning_required", "batch_exhausted", "offer_status",
+            "offers_broadcast",
             "last_offer_outcome", "pending_retry", "dispatch_exhausted", "error",
         )
         payload = {key: state[key] for key in keys if key in state}
@@ -801,6 +802,15 @@ accepted rejected timeout
             return {
                 "error": "No current technician selected",
                 "next_action": "END",
+            }
+
+        if state.get("offers_broadcast"):
+            return {
+                "next_action": "WAIT_FOR_RESPONSE",
+                "offer_status": "OFFERED",
+                "last_offer_outcome": None,
+                "batch_exhausted": False,
+                "pending_retry": False,
             }
 
         job = dict(state.get("job") or {})

@@ -31,9 +31,6 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/fieldops-splash.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
           "backgroundColor": "#002A20"
         }
       ],

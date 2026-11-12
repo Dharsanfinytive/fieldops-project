@@ -930,7 +930,7 @@ export default function JobDetailScreen() {
       setError(
         action === "start" && isAxiosError(actionError) &&
           actionError.response?.status === 409
-          ? "Another job is already in progress. Complete it before starting a new job."
+          ? "Start the earlier scheduled job first, then complete it before starting this job."
           : "The job action could not be confirmed by the server. Refresh the job before trying again."
       );
     } finally {
@@ -1564,6 +1564,15 @@ export default function JobDetailScreen() {
             </View>
           ) : null}
 
+          {assignedStatus === "ACCEPTED" && job.can_start === false ? (
+            <View style={styles.singleJobNotice}>
+              <Ionicons name="lock-closed-outline" size={19} color="#9A5B08" />
+              <Text style={styles.singleJobNoticeText}>
+                Complete the earlier scheduled job before starting this one.
+              </Text>
+            </View>
+          ) : null}
+
           {showLiveMapAction ? (
             <Pressable
               key="live-map"
@@ -1621,6 +1630,7 @@ export default function JobDetailScreen() {
               const isReject = action === "reject";
               const isGradientAction = action !== "reject";
               const blockedByOtherStartedJob = action === "start" && otherStartedJob !== null;
+              const blockedByEarlierScheduledJob = action === "start" && job.can_start === false;
               const canQueueOfflineAction =
                 isOffline &&
                 action !== "reject" &&
@@ -1639,6 +1649,7 @@ export default function JobDetailScreen() {
                   disabled={
                     activeAction !== null ||
                     blockedByOtherStartedJob ||
+                    blockedByEarlierScheduledJob ||
                     cannotUseCachedData ||
                     offlineBlockedAction ||
                     (action === "accept" && acceptanceExpired)
@@ -1651,6 +1662,8 @@ export default function JobDetailScreen() {
                     isGradientAction && styles.gradientButtonShell,
                     pressed && (isGradientAction ? styles.gradientButtonPressed : styles.pressed),
                     (activeAction !== null ||
+                      blockedByOtherStartedJob ||
+                      blockedByEarlierScheduledJob ||
                       cannotUseCachedData ||
                       offlineBlockedAction) &&
                       styles.buttonDisabled,

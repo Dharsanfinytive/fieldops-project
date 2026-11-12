@@ -63,6 +63,9 @@ export const getTechnicianJobs = (status?: string) =>
     params: status ? { status } : {},
   });
 
+export const getTechnicianJobOffers = () =>
+  api.get("/api/technician/job-offers");
+
 export const getTechnicianJobHistory = () =>
   api.get("/api/technician/jobs/history");
 

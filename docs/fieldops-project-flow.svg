@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120">
+<defs>
+  <linearGradient id="bg" x2="0" y2="1"><stop stop-color="#f8fbff"/><stop offset="1" stop-color="#eef4fb"/></linearGradient>
+  <linearGradient id="navy" x2="1" y2="1"><stop stop-color="#133d70"/><stop offset="1" stop-color="#0c2851"/></linearGradient>
+  <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#16385f" flood-opacity=".12"/></filter>
+  <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="#315780"/></marker>
+  <marker id="greenArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="#24945b"/></marker>
+  <style>
+    text{font-family:Segoe UI,Arial,sans-serif;fill:#152b49}.title{font-size:35px;font-weight:800;letter-spacing:.5px}.subtitle{font-size:17px;fill:#526987}.section{font-size:17px;font-weight:800;fill:white;letter-spacing:.5px}.cardtitle{font-size:17px;font-weight:800}.body{font-size:13px;fill:#344b68}.small{font-size:12px;fill:#415a78}.tiny{font-size:11px;fill:#415a78}.label{font-size:12px;font-weight:700}
+  </style>
+</defs>
+<rect width="1600" height="1120" fill="url(#bg)"/>
+<!-- Header -->
+<text x="800" y="54" text-anchor="middle" class="title">FIELDOPS COMMANDER</text>
+<text x="800" y="82" text-anchor="middle" class="subtitle">Field Service Orchestration Platform · Actual project workflow</text>
+<path d="M320 96H1280" stroke="#b5c7dc" stroke-width="2"/><circle cx="320" cy="96" r="4" fill="#234f80"/><circle cx="1280" cy="96" r="4" fill="#234f80"/>
+<!-- input band -->
+<rect x="70" y="112" width="1460" height="112" rx="18" fill="#fff" stroke="#b8cbe0" stroke-width="1.5" filter="url(#shadow)"/>
+<rect x="625" y="100" width="350" height="32" rx="10" fill="url(#navy)"/><text x="800" y="122" text-anchor="middle" class="section">INPUT CHANNELS</text>
+<g text-anchor="middle"><circle cx="260" cy="158" r="24" fill="#2d78c4"/><text x="260" y="166" font-size="23" fill="white">●</text><text x="260" y="198" class="label">Customer Web / App</text>
+<circle cx="620" cy="158" r="24" fill="#27a66b"/><text x="620" y="166" font-size="23" fill="white">●</text><text x="620" y="198" class="label">Technician Mobile App</text>
+<circle cx="980" cy="158" r="24" fill="#ef9b21"/><text x="980" y="166" font-size="23" fill="white">✉</text><text x="980" y="198" class="label">SMS / Email / Push</text>
+<circle cx="1340" cy="158" r="24" fill="#7551b5"/><text x="1340" y="166" font-size="23" fill="white">⚙</text><text x="1340" y="198" class="label">REST APIs</text></g>
+<!-- frontend and gateway -->
+<path d="M260 224v20m360-20v20m360-20v20m360-20v20" stroke="#466888" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrow)"/>
+<rect x="130" y="246" width="1340" height="62" rx="14" fill="#e7f1ff" stroke="#4b88ce" stroke-width="1.5"/>
+<text x="800" y="271" text-anchor="middle" class="cardtitle" fill="#1b5b9c">FRONTEND / USER INTERFACE</text><text x="800" y="292" text-anchor="middle" class="body">Customer portal · Technician portal · Dispatcher dashboard · Super Admin · Live tracking · Reports</text>
+<path d="M800 308v24" stroke="#315780" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="365" y="337" width="870" height="72" rx="16" fill="#f0eaff" stroke="#8a69c4" stroke-width="1.6" filter="url(#shadow)"/>
+<circle cx="415" cy="373" r="22" fill="#7951ba"/><text x="415" y="381" text-anchor="middle" font-size="24" fill="white">ϟ</text>
+<text x="800" y="365" text-anchor="middle" class="cardtitle" fill="#573a91">BACKEND API · FASTAPI</text><text x="800" y="390" text-anchor="middle" class="body">Authentication · Role and tenant access · Request validation · Orchestration · API responses</text>
+<!-- agents container -->
+<rect x="54" y="445" width="1125" height="355" rx="20" fill="#fff" stroke="#8f78c0" stroke-width="2" stroke-dasharray="9 6"/>
+<rect x="398" y="431" width="440" height="32" rx="10" fill="url(#navy)"/><text x="618" y="453" text-anchor="middle" class="section">AGENT WORKFLOW · JOB LIFECYCLE</text>
+<!-- branched arrows down from backend -->
+<path d="M800 409v22H225v38m575-38v38m0-38h355v38" fill="none" stroke="#674b9d" stroke-width="2.4" marker-end="url(#arrow)"/>
+<!-- agent cards -->
+<g filter="url(#shadow)">
+<rect x="82" y="474" width="276" height="196" rx="14" fill="#effaf2" stroke="#54a86d" stroke-width="1.5"/>
+<rect x="380" y="474" width="276" height="196" rx="14" fill="#eef5ff" stroke="#5a8dd2" stroke-width="1.5"/>
+<rect x="678" y="474" width="276" height="196" rx="14" fill="#fff5e9" stroke="#e49a42" stroke-width="1.5"/>
+<rect x="976" y="474" width="176" height="196" rx="14" fill="#eafbfa" stroke="#45aaa8" stroke-width="1.5"/>
+</g>
+<g text-anchor="middle"><circle cx="220" cy="510" r="21" fill="#48a661"/><text x="220" y="517" font-size="22" fill="white">✦</text><text x="220" y="548" class="cardtitle" fill="#287941">INTAKE AGENT</text><text x="220" y="568" class="small">Request understanding &amp; validation</text>
+<circle cx="518" cy="510" r="21" fill="#417fc4"/><text x="518" y="517" font-size="21" fill="white">▦</text><text x="518" y="548" class="cardtitle" fill="#245b9c">PLANNING AGENT</text><text x="518" y="568" class="small">Technician recommendations</text>
+<circle cx="816" cy="510" r="21" fill="#e88928"/><text x="816" y="517" font-size="20" fill="white">➤</text><text x="816" y="548" class="cardtitle" fill="#b85e1c">DISPATCH</text><text x="816" y="568" class="small">Assignment &amp; acceptance</text>
+<circle cx="1064" cy="510" r="21" fill="#229d9c"/><text x="1064" y="517" font-size="20" fill="white">●</text><text x="1064" y="548" class="cardtitle" fill="#167c7d">COMMUNICATION</text><text x="1064" y="568" class="small">Customer &amp; technician updates</text></g>
+<g class="body"><text x="103" y="598">• Parse selected service and request</text><text x="103" y="620">• Check location and service signals</text><text x="103" y="642">• Prepare structured job details</text>
+<text x="401" y="598">• Find eligible technicians</text><text x="401" y="620">• Match skill and availability</text><text x="401" y="642">• Rank candidates by fit/proximity</text>
+<text x="699" y="598">• Offer job to technician</text><text x="699" y="620">• Handle acceptance or decline</text><text x="699" y="642">• Retry / redispatch if needed</text>
+<text x="990" y="598">• Assignment notices</text><text x="990" y="620">• Job status updates</text><text x="990" y="642">• Escalations and alerts</text></g>
+<path d="M358 573h18m280 0h18m280 0h18" stroke="#24945b" stroke-width="3" marker-end="url(#greenArrow)"/>
+<!-- exception note -->
+<rect x="82" y="690" width="1070" height="82" rx="12" fill="#fff8e8" stroke="#e5b950"/>
+<text x="102" y="716" class="label" fill="#8e6415">CURRENT INTAKE HANDOFF</text><text x="102" y="739" class="small">If Intake returns invalid, the customer portal currently builds a fallback request and still sends it to Planning.</text><text x="102" y="758" class="tiny">The separate workflow.py orchestration stops before Planning on invalid intake; the two paths behave differently.</text>
+<!-- realtime column -->
+<rect x="1210" y="445" width="340" height="355" rx="20" fill="#f4f9ff" stroke="#5685b8" stroke-width="2" stroke-dasharray="8 5"/>
+<rect x="1272" y="431" width="216" height="32" rx="10" fill="#245482"/><text x="1380" y="453" text-anchor="middle" class="section">REAL-TIME SERVICES</text>
+<rect x="1238" y="478" width="284" height="132" rx="13" fill="#eaf6ff" stroke="#6e9dc5"/><circle cx="1274" cy="512" r="20" fill="#178e9c"/><text x="1274" y="519" text-anchor="middle" font-size="19" fill="white">⌖</text><text x="1400" y="508" text-anchor="middle" class="cardtitle" fill="#245482">TRACKING</text><text x="1380" y="538" text-anchor="middle" class="small">GPS location · ETA · job status</text><text x="1380" y="560" text-anchor="middle" class="small">Redis events → WebSocket clients</text><text x="1380" y="585" text-anchor="middle" class="tiny">Customer · Technician · Staff views</text>
+<rect x="1238" y="630" width="284" height="136" rx="13" fill="#f2efff" stroke="#9783c5"/><circle cx="1274" cy="664" r="20" fill="#7154a8"/><text x="1274" y="671" text-anchor="middle" font-size="19" fill="white">!</text><text x="1400" y="661" text-anchor="middle" class="cardtitle" fill="#5b458e">ESCALATION / SLA</text><text x="1380" y="694" text-anchor="middle" class="small">Breach signals · Retry rules</text><text x="1380" y="716" text-anchor="middle" class="small">Customer concerns → staff follow-up</text><text x="1380" y="744" text-anchor="middle" class="tiny">Triggered by relevant events</text>
+<path d="M1152 570h48" stroke="#315780" stroke-width="2.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<!-- lower lifecycle -->
+<path d="M816 670v120H480v39m336-39v39m0-39h330v39" fill="none" stroke="#58718e" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="54" y="833" width="1125" height="116" rx="16" fill="#fff" stroke="#b2c3d6"/>
+<rect x="392" y="818" width="450" height="32" rx="10" fill="url(#navy)"/><text x="617" y="840" text-anchor="middle" class="section">WORK COMPLETION &amp; CUSTOMER OUTCOME</text>
+<rect x="82" y="864" width="300" height="64" rx="12" fill="#f1f6ff" stroke="#7396c2"/><text x="232" y="889" text-anchor="middle" class="cardtitle" fill="#315780">TECHNICIAN WORK</text><text x="232" y="912" text-anchor="middle" class="small">Mobile status · GPS · job updates</text>
+<path d="M382 896h35" stroke="#315780" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="424" y="864" width="300" height="64" rx="12" fill="#effaf3" stroke="#63a879"/><text x="574" y="889" text-anchor="middle" class="cardtitle" fill="#287941">CLOSURE</text><text x="574" y="912" text-anchor="middle" class="small">Completion details · documents · close job</text>
+<path d="M724 896h35" stroke="#315780" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="766" y="864" width="378" height="64" rx="12" fill="#fbf3ff" stroke="#a37cc1"/><text x="955" y="889" text-anchor="middle" class="cardtitle" fill="#69478b">SENTIMENT &amp; FEEDBACK</text><text x="955" y="912" text-anchor="middle" class="small">Analyze feedback/messages · escalate concerns</text>
+<!-- storage & integrations -->
+<rect x="54" y="978" width="730" height="110" rx="16" fill="#fff" stroke="#8aa6c3"/>
+<rect x="252" y="963" width="334" height="32" rx="10" fill="#173f6b"/><text x="419" y="985" text-anchor="middle" class="section">DATA LAYER</text>
+<rect x="78" y="1005" width="330" height="64" rx="12" fill="#edf4fc" stroke="#9bb1c9"/><text x="243" y="1030" text-anchor="middle" class="cardtitle" fill="#315780">POSTGRESQL</text><text x="243" y="1052" text-anchor="middle" class="small">Users · Jobs · Requests · Assignments · Audit</text>
+<rect x="430" y="1005" width="330" height="64" rx="12" fill="#fff0ed" stroke="#df9583"/><text x="595" y="1030" text-anchor="middle" class="cardtitle" fill="#a84e3b">REDIS + FILE STORAGE</text><text x="595" y="1052" text-anchor="middle" class="small">Cache · sessions · events · attachments</text>
+<rect x="812" y="978" width="738" height="110" rx="16" fill="#fff" stroke="#d8b56a"/>
+<rect x="1004" y="963" width="350" height="32" rx="10" fill="#98640e"/><text x="1179" y="985" text-anchor="middle" class="section">INTEGRATIONS &amp; OUTPUTS</text>
+<g text-anchor="middle"><circle cx="918" cy="1025" r="19" fill="#31a56c"/><text x="918" y="1032" font-size="18" fill="white">⌖</text><text x="918" y="1061" class="tiny">Maps / ETA</text>
+<circle cx="1082" cy="1025" r="19" fill="#ed9b27"/><text x="1082" y="1032" font-size="18" fill="white">✉</text><text x="1082" y="1061" class="tiny">SMS / Email / Push</text>
+<circle cx="1246" cy="1025" r="19" fill="#447fc0"/><text x="1246" y="1032" font-size="18" fill="white">▤</text><text x="1246" y="1061" class="tiny">Reports / Audit</text>
+<circle cx="1410" cy="1025" r="19" fill="#7551b5"/><text x="1410" y="1032" font-size="18" fill="white">API</text><text x="1410" y="1061" class="tiny">External APIs</text></g>
+<text x="800" y="1110" text-anchor="middle" font-size="11" fill="#71849c">Project flow summarized from inspected source paths · Monitoring Agent is not a required step in this customer booking workflow</text>
+</svg>
