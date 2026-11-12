@@ -2,6 +2,7 @@ import { apiClient } from "./client";
 
 export interface TechnicianJob {
   id: string | number;
+  can_start?: boolean;
   images?: string[];
   payment_status?: string | null;
   payment_amount?: number | null;
@@ -57,6 +58,7 @@ export interface TechnicianJobQuery {
 
 interface TechnicianJobApiResponse {
   id: string | number;
+  can_start?: boolean | null;
   images?: string[] | null;
   payment_status?: string | null;
   payment_amount?: number | null;
@@ -108,6 +110,7 @@ function normalizeTechnicianJob(
   return {
     ...job,
     images: Array.isArray(job.images) ? job.images : undefined,
+    can_start: job.can_start ?? undefined,
     payment_status: job.payment_status,
     payment_amount: job.payment_amount,
     payment_method: job.payment_method,
@@ -143,6 +146,14 @@ export async function getTechnicianJobs(
   const response = await apiClient.get<TechnicianJobApiResponse[]>(
     "/api/technician/jobs",
     { params: query }
+  );
+
+  return response.data.map(normalizeTechnicianJob);
+}
+
+export async function getTechnicianJobOffers(): Promise<TechnicianJob[]> {
+  const response = await apiClient.get<TechnicianJobApiResponse[]>(
+    "/api/technician/job-offers"
   );
 
   return response.data.map(normalizeTechnicianJob);

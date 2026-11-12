@@ -1572,6 +1572,53 @@ def accept_job(
             detail="Job not found",
         )
 
+    # Broadcast offers remain unassigned until a technician accepts. Route
+    # these claims through the PostgreSQL conditional UPDATE service; the
+    # legacy assigned-job acceptance flow below remains for existing jobs.
+    if (
+        job.assigned_technician_id is None
+        and (job.status or "").upper() in {"CREATED", "QUEUED", "UNASSIGNED", "OFFERED"}
+    ):
+        from app.services.atomic_assignment_service import (
+            AssignmentConflict,
+            accept_broadcast_offer,
+        )
+
+        try:
+            result = accept_broadcast_offer(
+                db,
+                job_id=job_id,
+                tenant_id=str(current_user.tenant_id),
+                technician_id=int(technician.technician_id),
+            )
+        except AssignmentConflict as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "success": False,
+                    "job_id": job_id,
+                    "status": "UNAVAILABLE",
+                    "message": str(exc),
+                },
+            ) from exc
+        except Exception as exc:
+            logger.exception("Atomic job assignment failed for job %s", job_id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to accept job",
+            ) from exc
+
+        TimerService.cancel_timer(redis_client, str(job_id))
+        return {
+            "success": True,
+            "job_id": result.job_id,
+            "status": result.status,
+            "message": "Job assigned successfully",
+            "technician_id": result.technician_id,
+            "organization_id": result.organization_id,
+            "idempotent": result.already_accepted,
+        }
+
     # ---------------------------------------------------------
     # 3. Job must still be ASSIGNED
     # ---------------------------------------------------------

@@ -4,13 +4,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as Location from "expo-location";
 
-import { getTechnicianJobs, type TechnicianJob } from "../api/technician";
+import { getTechnicianJobOffers, type TechnicianJob } from "../api/technician";
 import { performTechnicianJobAction } from "../api/jobActions";
 import { useAuthStore } from "../auth/authStore";
 import { getTechnicianAvailabilityLocation } from "../gps/gpsService";
 
 const ACCEPTANCE_WINDOW_MS = 5 * 60 * 1000;
-const REFRESH_INTERVAL_MS = 12_000;
+// Broadcast offers are visible to every technician independently; refresh
+// often enough that an open mobile app surfaces the existing popup promptly.
+const REFRESH_INTERVAL_MS = 5_000;
 const DISTANCE_LOOKUP_TIMEOUT_MS = 5_000;
 
 function isAwaitingAcceptance(job: TechnicianJob): boolean {
@@ -99,7 +101,7 @@ export function TechnicianJobAssignmentOffer() {
       if (!active || requestInFlight || AppState.currentState !== "active") return;
       requestInFlight = true;
       try {
-        const jobs = await getTechnicianJobs();
+        const jobs = await getTechnicianJobOffers();
         if (!active) return;
         setOffer((current) => {
           if (current && isAwaitingAcceptance(current)) {

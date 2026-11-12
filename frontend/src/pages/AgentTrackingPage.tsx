@@ -197,7 +197,6 @@ function JobProgressDetail({
     { name: "Intake Agent", icon: <FileText size={21}/>, active: true, running: false },
     { name: "Planning Agent", icon: <CalendarDays size={21}/>, active: Boolean(job.assigned_at), running: false },
     { name: "Dispatcher Agent", icon: <Send size={21}/>, active: Boolean(job.assigned_at), running: job.current_agent === "Dispatcher" },
-    { name: "Monitoring Agent", icon: <Activity size={21}/>, active: job.accepted, running: ["EN_ROUTE", "ON_SITE", "IN_PROGRESS"].includes(job.status.toUpperCase()) },
     { name: "Communication Agent", icon: <MessageSquare size={21}/>, active: job.accepted, running: false },
     { name: "Sentiment Agent", icon: <Smile size={21}/>, active: job.events.some((event) => event.kind === "sentiment"), running: false },
     { name: "Closure Agent", icon: <CircleCheck size={21}/>, active: isTerminal(job), running: job.status.toUpperCase() === "COMPLETED" },
@@ -466,12 +465,12 @@ export default function AgentTrackingPage() {
         ) : error ? (
           <div className="agent-track-message is-error"><AlertCircle size={20} />{error}<button onClick={() => void load()}>Try again</button></div>
         ) : filteredJobs.length ? (
-          <div className="agent-track-table-wrap"><table className="agent-track-table"><thead><tr><th>Job ID</th><th>Customer</th><th>Job Type</th><th>Agent Pipeline (7 Agents)</th><th>Progress</th><th>Status</th><th>Last Update</th><th>Action</th></tr></thead><tbody>
+          <div className="agent-track-table-wrap"><table className="agent-track-table"><thead><tr><th>Job ID</th><th>Customer</th><th>Job Type</th><th>Agent Pipeline (6 Agents)</th><th>Progress</th><th>Status</th><th>Last Update</th><th>Action</th></tr></thead><tbody>
             {filteredJobs.map((job) => { const progress = progressFor(job); return <tr key={job.job_id}>
               <td><strong className="agent-track-table-id">#{job.job_number}</strong></td>
               <td><div className="agent-track-customer"><span className="agent-track-customer-avatar"><UserRound size={17}/></span><span><strong>{job.customer_name || "Customer"}</strong><small>{job.location || "Location not recorded"}</small></span></div></td>
               <td><span className="agent-track-service"><Wrench size={14}/>{job.service_type || "Service"}</span></td>
-              <td><div className="agent-track-pipeline">{job.stages.slice(0, 7).map((stage, index) => <div className={`agent-track-pipeline-step state-${stage.state}`} key={stage.key}><span>{stageIcon(stage)}</span><small>{({intake:"Intake",planning:"Planning",dispatch:"Dispatcher",communication:"Comm.",technician_work:"Monitoring",sentiment:"Sentiment",closure:"Closure"} as Record<string,string>)[stage.key] || stage.label}</small>{index < Math.min(job.stages.length, 7) - 1 ? <i/> : null}</div>)}</div></td>
+              <td><div className="agent-track-pipeline">{job.stages.filter((stage) => stage.key !== "technician_work").slice(0, 6).map((stage, index, stages) => <div className={`agent-track-pipeline-step state-${stage.state}`} key={stage.key}><span>{stageIcon(stage)}</span><small>{({intake:"Intake",planning:"Planning",dispatch:"Dispatcher",communication:"Comm.",sentiment:"Sentiment",closure:"Closure"} as Record<string,string>)[stage.key] || stage.label}</small>{index < stages.length - 1 ? <i/> : null}</div>)}</div></td>
               <td><div className="agent-track-progress"><strong>{progress}%</strong><span><i style={{width: `${progress}%`}}/></span></div></td>
               <td><span className={`agent-track-table-status ${isFailed(job) ? "failed" : isTerminal(job) ? "completed" : "running"}`}>{isFailed(job) ? "Failed" : isTerminal(job) ? "Completed" : "Running"}</span></td>
               <td className="agent-track-update">{formatTimestamp(job.updated_at)}</td><td><button className="agent-track-view" onClick={() => void openJob(job)}>View Tracking <span>→</span></button></td>

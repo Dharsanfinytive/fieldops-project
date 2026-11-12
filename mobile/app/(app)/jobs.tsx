@@ -219,6 +219,20 @@ function normalizeStatus(status: string): string {
 function isActiveAssignment(job: TechnicianJob): boolean {
   const status = normalizeStatus(job.status).replace(/[ -]+/g, "_");
   return ![
+    // My Jobs is for accepted/work-in-progress jobs. Assignment cards remain
+    // available through the separate acceptance popup and must not leak in
+    // from an older offline cache while waiting for an accept or timeout.
+    "ASSIGNED",
+    "ACTIVE",
+    "PENDING",
+    "AWAITING_ACCEPTANCE",
+    "QUEUED",
+    "PLANNED",
+    "OFFERED",
+    "UNASSIGNED",
+    "CREATED",
+    "TIMEOUT",
+    "TIMED_OUT",
     "COMPLETED",
     "CLOSED",
     "CANCELLED",
@@ -277,6 +291,17 @@ function getScheduledDay(job: TechnicianJob): Date | null {
   if (Number.isNaN(date.getTime())) return null;
   date.setHours(0, 0, 0, 0);
   return date;
+}
+
+function getScheduleOrderKey(job: TechnicianJob): string {
+  const date = (job.preferred_service_date || job.scheduled_at || "").slice(0, 10);
+  const time = (job.preferred_service_time || "23:59:59").slice(0, 8);
+  return `${date || "9999-12-31"}T${time}`;
+}
+
+function compareJobSchedule(first: TechnicianJob, second: TechnicianJob): number {
+  return getScheduleOrderKey(first).localeCompare(getScheduleOrderKey(second)) ||
+    Number(first.id) - Number(second.id);
 }
 
 function matchesDateFilter(job: TechnicianJob, filter: JobDateFilter, now: Date): boolean {
@@ -361,7 +386,7 @@ export default function JobsScreen() {
 
       if (cachedJobs) {
         hasCachedJobs = true;
-        setJobs(cachedJobs.jobs.filter(isActiveAssignment));
+        setJobs(cachedJobs.jobs.filter(isActiveAssignment).sort(compareJobSchedule));
         setDataSource("cache");
         setOfflineMessage(
           "Showing saved jobs while checking for updates. These details may be outdated."
@@ -373,11 +398,7 @@ export default function JobsScreen() {
     try {
       const serverJobs = normalizeJobs(await getTechnicianJobs())
         .filter(isActiveAssignment)
-        .sort((first, second) => {
-        const firstTimestamp = Date.parse(String(first.assigned_at || first.created_at || "")) || 0;
-        const secondTimestamp = Date.parse(String(second.assigned_at || second.created_at || "")) || 0;
-        return secondTimestamp - firstTimestamp;
-      });
+        .sort(compareJobSchedule);
 
       setJobs(serverJobs);
       setDataSource("server");

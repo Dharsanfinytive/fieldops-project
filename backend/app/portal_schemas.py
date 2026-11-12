@@ -422,6 +422,7 @@ ServiceRequestResponse.model_rebuild()
 
 class TechnicianJobResponse(BaseModel):
     id: int
+    can_start: Optional[bool] = None
     images: Optional[List[str]] = None
     payment_status: Optional[str] = None
     payment_amount: Optional[float] = None
