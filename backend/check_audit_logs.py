@@ -100,7 +100,7 @@ def get_job_lifecycle_data(db, job):
         "logs": logs
     }
 
-def show_recent_jobs(limit=10):
+def show_recent_jobs(limit=15):
     db = SessionLocal()
     try:
         jobs = db.query(Job).order_by(Job.id.desc()).limit(limit).all()
@@ -213,7 +213,7 @@ def show_job_logs(job_id):
     finally:
         db.close()
 
-def show_full_recent_jobs(limit=5):
+def show_full_recent_jobs(limit=15):
     """Show detailed lifecycle card for each recent job."""
     db = SessionLocal()
     try:
