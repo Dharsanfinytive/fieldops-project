@@ -298,12 +298,20 @@ export default function CustomerServiceHistoryPage() {
     }
   };
 
-  const completedList = history.filter(
-    (item) => String(item.status || "").trim().toUpperCase() === "COMPLETED",
+  const completedList = history.filter((item) =>
+    ["COMPLETED", "CLOSED"].includes(String(item.status || "").trim().toUpperCase()),
   );
 
-  const cancelledList = history.filter(
-    (item) => String(item.status || "").trim().toUpperCase() === "CANCELLED",
+  const cancelledList = history.filter((item) =>
+    [
+      "CANCELLED",
+      "CANCELED",
+      "REJECTED_BY_TECHNICIAN",
+      "EXHAUSTED",
+      "FAILED",
+      "REJECTED",
+      "TIMED_OUT",
+    ].includes(String(item.status || "").trim().toUpperCase()),
   );
 
   const currentList = activeTab === "COMPLETED" ? completedList : cancelledList;

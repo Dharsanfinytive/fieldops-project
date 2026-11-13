@@ -59,6 +59,7 @@ export interface NotificationBellProps {
   isAnimated?: boolean;
   showSound?: boolean;
   className?: string;
+  hideBadgeBorder?: boolean;
 }
 
 export interface NotificationDetailProps {

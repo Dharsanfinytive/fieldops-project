@@ -68,7 +68,8 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   onClick,
   isAnimated = true,
   showSound = true,
-  className = ""
+  className = "",
+  hideBadgeBorder = false,
 }) => {
   const prevCount = useRef(unreadCount);
   const [bounce, setBounce] = useState(false);
@@ -114,6 +115,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     ...styles.badge,
     backgroundColor: hasUnread ? "#dc2626" : "#16a34a",
     color: "#ffffff",
+    border: hideBadgeBorder ? "none" : "2px solid #ffffff",
   };
 
   return (

@@ -1,7 +1,12 @@
 {
-  "total": 0,
-  "passed": 0,
+  "total": 1,
+  "passed": 1,
   "failed": 0,
   "skipped": 0,
-  "tests": []
+  "tests": [
+    {
+      "nodeid": "tests/agents/test_dispatcher_runtime_handoff.py::test_offer_job_id_normalizes_graph_and_legacy_state",
+      "outcome": "passed"
+    }
+  ]
 }

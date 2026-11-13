@@ -224,3 +224,18 @@ export function useToast(): ToastContextValue {
   }
   return ctx;
 }
+
+const NOOP_TOAST_CONTEXT: ToastContextValue = {
+  toasts: [],
+  addToast: () => '',
+  dismissToast: () => {},
+  pauseToast: () => {},
+  resumeToast: () => {},
+  soundEnabled: false,
+  setSoundEnabled: () => {},
+};
+
+export function useOptionalToast(): ToastContextValue {
+  const ctx = useContext(ToastContext);
+  return ctx ?? NOOP_TOAST_CONTEXT;
+}

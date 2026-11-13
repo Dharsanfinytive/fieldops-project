@@ -15,7 +15,7 @@ from io import BytesIO
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, select
@@ -718,12 +718,15 @@ async def list_service_requests(
 
         if sr_status_str in {"CANCELLED", "CANCELED"} or job_status_str in {"CANCELLED", "CANCELED"}:
             service_request.status = "CANCELLED"
-        elif job_status_str in {"REJECTED_BY_TECHNICIAN", "EXHAUSTED", "FAILED"} or sr_status_str in {"REJECTED_BY_TECHNICIAN", "EXHAUSTED", "FAILED"}:
+        elif (
+            job_status_str in {"REJECTED_BY_TECHNICIAN", "EXHAUSTED", "FAILED", "REJECTED", "TIMED_OUT"}
+            or sr_status_str in {"REJECTED_BY_TECHNICIAN", "EXHAUSTED", "FAILED", "REJECTED", "TIMED_OUT"}
+        ):
             service_request.status = "CANCELLED"
         elif job_status_str in {"ASSIGNED", "AWAITING_ACCEPTANCE", "QUEUED", "DISPATCHED", "PENDING"} or sr_status_str in {"ASSIGNED", "AWAITING_ACCEPTANCE", "QUEUED"}:
             service_request.status = "AWAITING_ACCEPTANCE"
         elif job_status_str in ["COMPLETED", "CLOSED"] or sr_status_str in ["COMPLETED", "CLOSED"]:
-            service_request.status = job_status_str or sr_status_str
+            service_request.status = "COMPLETED"
         elif job_status_str:
             service_request.status = job_status_str
 
@@ -1300,8 +1303,8 @@ class CustomerCancellationRequest(BaseModel):
 )
 async def cancel_service_request(
     sr_id: int,
-    data: CustomerCancellationRequest,
-    request: Request,
+    data: Optional[CustomerCancellationRequest] = Body(default=None),
+    request: Request = None,
     current_user: AuthenticatedUser = Depends(
         require_permission(Permission.CUSTOMERS_CREATE_REQUEST)
     ),
@@ -1326,15 +1329,6 @@ async def cancel_service_request(
             detail="Service request not found",
         )
 
-    created_at = sr.created_at
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) - created_at > timedelta(hours=3):
-        raise HTTPException(
-            status_code=400,
-            detail="Service requests can only be cancelled within 3 hours of booking.",
-        )
-
     linked_job = None
     if sr.linked_job_id:
         linked_job = (
@@ -1354,17 +1348,30 @@ async def cancel_service_request(
             .first()
         )
 
+    cancellable_statuses = {
+        "CREATED",
+        "QUEUED",
+        "PLANNED",
+        "PENDING",
+        "UNASSIGNED",
+        "AWAITING_ACCEPTANCE",
+        "DISPATCHED",
+        "ASSIGNED",
+        "ACCEPTED",
+    }
     can_cancel = (
-        linked_job.status in {"CREATED", "ASSIGNED", "ACCEPTED"}
+        str(getattr(linked_job, "status", "") or "").strip().upper() in cancellable_statuses
         if linked_job
-        else sr.status in {"UNASSIGNED", "PENDING", "CREATED", "ASSIGNED"}
+        else str(getattr(sr, "status", "") or "").strip().upper() in cancellable_statuses
     )
     if not can_cancel:
         raise HTTPException(status_code=400, detail="Can only cancel pending requests")
     if sr.linked_job_id and not linked_job:
         raise HTTPException(status_code=404, detail="Linked job not found")
 
-    cancellation_reason = data.reason.strip()
+    cancellation_reason = (
+        data.reason.strip() if data and data.reason is not None else "Cancelled by customer"
+    )
 
     if len(cancellation_reason) < 3:
         raise HTTPException(
@@ -2485,22 +2492,33 @@ async def get_service_history(
 ):
     """Get completed/cancelled service requests with technician details."""
 
+    history_statuses = [
+        "completed",
+        "closed",
+        "cancelled",
+        "canceled",
+        "rejected_by_technician",
+        "exhausted",
+        "failed",
+        "rejected",
+        "timed_out",
+    ]
     rows = (
         db.query(ServiceRequest, Job)
         .outerjoin(
             Job,
-            ServiceRequest.linked_job_id == Job.id,
+            (ServiceRequest.linked_job_id == Job.id)
+            & or_(
+                Job.customer_id == str(current_user.user_id),
+                Job.customer_id.is_(None),
+            ),
         )
         .filter(
             ServiceRequest.customer_user_id == current_user.user_id,
             ServiceRequest.tenant_id == current_user.tenant_id,
             or_(
-                func.lower(ServiceRequest.status).in_(
-                    ["completed", "closed", "cancelled", "canceled"]
-                ),
-                func.lower(Job.status).in_(
-                    ["completed", "closed", "cancelled", "canceled"]
-                ),
+                func.lower(ServiceRequest.status).in_(history_statuses),
+                func.lower(Job.status).in_(history_statuses),
             ),
         )
         .order_by(ServiceRequest.updated_at.desc())
@@ -2536,7 +2554,10 @@ async def get_service_history(
 
         if sr_status_str in ["CANCELLED", "CANCELED"] or job_status_str in ["CANCELLED", "CANCELED"]:
             sr.status = "CANCELLED"
-        elif sr_status_str in ["REJECTED_BY_TECHNICIAN", "EXHAUSTED", "FAILED"] or job_status_str in ["REJECTED_BY_TECHNICIAN", "EXHAUSTED", "FAILED"]:
+        elif (
+            sr_status_str in ["REJECTED_BY_TECHNICIAN", "EXHAUSTED", "FAILED", "REJECTED", "TIMED_OUT"]
+            or job_status_str in ["REJECTED_BY_TECHNICIAN", "EXHAUSTED", "FAILED", "REJECTED", "TIMED_OUT"]
+        ):
             sr.status = "CANCELLED"
         elif job_status_str in ["ASSIGNED", "AWAITING_ACCEPTANCE", "QUEUED", "DISPATCHED", "PENDING"] or sr_status_str in ["ASSIGNED", "AWAITING_ACCEPTANCE", "QUEUED"]:
             sr.status = "AWAITING_ACCEPTANCE"

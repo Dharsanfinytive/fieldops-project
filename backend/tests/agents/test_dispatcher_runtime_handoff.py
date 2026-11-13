@@ -156,6 +156,10 @@ async def test_offer_is_persisted_and_realtime_notification_is_sent(monkeypatch)
 
     from app.services import socket_manager
 
+    import app.services.assignment_push
+    async def fake_push(**_):
+        return None
+    monkeypatch.setattr(app.services.assignment_push, "send_assignment_push", fake_push)
     monkeypatch.setattr(socket_manager, "emit_notification", emit_notification)
     runtime = dispatcher_runtime.DispatcherRuntime.__new__(dispatcher_runtime.DispatcherRuntime)
 
@@ -188,6 +192,114 @@ async def test_offer_is_persisted_and_realtime_notification_is_sent(monkeypatch)
     assert sent[0][0] == "tech-17"
     assert sent[0][1]["jobId"] == "153"
     assert sent[0][1]["notification_metadata"]["dispatch_attempt_id"] == "attempt-153"
+
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_offer_reassigns_job_tenant(monkeypatch):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    with sessions() as db:
+        db.add_all([
+            Organization(id="org-A", name="Org A", slug="org-a"),
+            Organization(id="org-B", name="Org B", slug="org-b"),
+        ])
+        db.flush()
+        db.add_all([
+            Technician(
+                technician_id=16,
+                tech_id="tech-16",
+                tenant_id="org-A",
+                technician_name="Technician Yeswanth",
+                technician_skill="Electrical",
+                technician_location="Chennai",
+                technician_status="AVAILABLE",
+                last_ping=datetime.now(timezone.utc),
+            ),
+            Technician(
+                technician_id=18,
+                tech_id="tech-18",
+                tenant_id="org-B",
+                technician_name="Tech OE",
+                technician_skill="Electrical",
+                technician_location="Chennai",
+                technician_status="AVAILABLE",
+                last_ping=datetime.now(timezone.utc),
+            ),
+            Job(
+                id=227,
+                tenant_id="org-A",
+                customer_tenant_id="customer-org",
+                customer_name="Customer User",
+                location="Chennai",
+                issue_description="Light not working",
+                priority="HIGH",
+                service_type="Electrical",
+                contact_number="9876543210",
+                preferred_service_date=date.today(),
+                status="QUEUED",
+                assigned_technician_id=None,
+            ),
+        ])
+        db.commit()
+        db.close()
+
+    monkeypatch.setattr(dispatcher_runtime, "SessionLocal", sessions)
+    class _FreshAvailability:
+        def get(self, _key):
+            return json.dumps({
+                "tenant_id": "org-B",
+                "latitude": 13.08,
+                "longitude": 80.27,
+                "accuracy": 10,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+
+    monkeypatch.setattr(dispatcher_runtime, "get_redis_client", lambda: _FreshAvailability())
+    import app.services.assignment_push
+    async def fake_push(**_):
+        return None
+    monkeypatch.setattr(app.services.assignment_push, "send_assignment_push", fake_push)
+
+    sent = []
+    async def emit_notification(tech_id, payload):
+        sent.append((tech_id, payload))
+        return True
+
+    from app.services import socket_manager
+    monkeypatch.setattr(socket_manager, "emit_notification", emit_notification)
+    runtime = dispatcher_runtime.DispatcherRuntime.__new__(dispatcher_runtime.DispatcherRuntime)
+
+    # Offer to technician 18 in org-B when job currently belongs to org-A
+    await runtime.offer_job(
+        {"id": 227, "service_type": "Electrical", "dispatch_attempt_id": "attempt-227"},
+        18,
+    )
+
+    with sessions() as verify_db:
+        persisted_job = verify_db.query(Job).filter_by(id=227).one()
+        persisted_offer = verify_db.query(InAppNotification).filter_by(
+            job_id="227",
+            recipient_id="tech-18",
+            type="JOB_ASSIGNED",
+        ).one()
+
+        assert persisted_job.tenant_id == "org-B"
+        assert persisted_job.assigned_technician_id == 18
+        assert persisted_job.status == "ASSIGNED"
+        assert persisted_offer.tenant_id == "org-B"
+        assert persisted_offer.recipient_id == "tech-18"
+
+    assert len(sent) == 1
+    assert sent[0][0] == "tech-18"
+    assert sent[0][1]["jobId"] == "227"
 
     Base.metadata.drop_all(bind=engine)
     engine.dispose()

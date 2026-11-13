@@ -1437,9 +1437,21 @@ function AppInner() {
       base = {
         ...base,
         ...styles.navActive,
+        ...(isCustomer && !isMobileLayout
+          ? {
+              background: "#B5D5C4",
+              color: "#0F3D2E",
+              boxShadow: "inset 3px 0 0 #059669",
+            }
+          : {}),
         ...(isMobileLayout
           ? styles.navActiveMobile
           : {}),
+      };
+    } else if (isCustomer) {
+      base = {
+        ...base,
+        color: "#334155",
       };
     }
 
@@ -1595,6 +1607,7 @@ function AppInner() {
       }
       isAnimated={isBellAnimated}
       showSound={true}
+      hideBadgeBorder={isCustomer}
     />
 
       {!isMobileLayout && (
@@ -1669,8 +1682,8 @@ function AppInner() {
           style={{
             height: "60px",
             minHeight: "60px",
-            background: "#FFFFFF",
-            borderBottom: "1px solid #E2E8F0",
+            background: "#D8E8DF",
+            borderBottom: "1px solid #C2D9CC",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -1943,8 +1956,8 @@ function AppInner() {
               ? {
                   width: sidebarCollapsed ? "64px" : "240px",
                   minWidth: sidebarCollapsed ? "64px" : "240px",
-                  background: "#FFFFFF",
-                  borderRight: "1px solid #E2E8F0",
+                  background: "#D8E8DF",
+                  borderRight: "1px solid #C2D9CC",
                   display: "flex",
                   flexDirection: "column",
                   height: "100%",
@@ -2148,7 +2161,7 @@ function AppInner() {
             <div
               aria-hidden="true"
               style={
-                isMobileLayout || isTechnician
+                isMobileLayout || isTechnician || isCustomer
                   ? { display: "none" }
                   : {
                       height: "38px",
