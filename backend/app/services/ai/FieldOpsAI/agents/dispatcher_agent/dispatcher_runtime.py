@@ -770,8 +770,18 @@ class DispatcherRuntime:
                     f"for job {job_id}"
                 )
 
-            if str(getattr(technician, "tenant_id", None)) != str(getattr(job, "tenant_id", None)):
-                raise RuntimeError("planning_candidate_tenant_mismatch")
+            tech_tenant_id = getattr(technician, "tenant_id", None)
+            if not tech_tenant_id:
+                raise RuntimeError("planning_candidate_missing_tenant")
+            if str(tech_tenant_id) != str(getattr(job, "tenant_id", None)):
+                logger.info(
+                    "CROSS-TENANT OFFER: Updating job tenant_id from %s to technician tenant_id %s | job=%s technician=%s",
+                    getattr(job, "tenant_id", None),
+                    tech_tenant_id,
+                    job_id,
+                    technician_id,
+                )
+                job.tenant_id = tech_tenant_id
 
             # Persist an active offer without reserving the job. PostgreSQL
             # selects the winner later in accept_broadcast_offer.

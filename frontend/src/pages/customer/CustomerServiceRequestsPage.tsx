@@ -25,6 +25,8 @@ import {
   Calendar,
   Layers,
   Filter,
+  Search,
+  ChevronDown,
 } from "lucide-react";
 
 import {
@@ -44,6 +46,8 @@ import CustomerNewRequestMarketplace from "../../components/customer/CustomerNew
 import JobMessagePanel from "../../components/customer-tracking/JobMessagePanel";
 import { useTrackingStore } from "../../store/trackingStore";
 import { SERVICE_CATALOGUE_TAXONOMY } from "../../data/serviceCatalogueTaxonomy";
+import { useOptionalToast } from "../../hooks/useToast";
+import CustomerThemedSelect from "../../components/customer/CustomerThemedSelect";
 
 const OLA_STYLE =
   "https://api.olamaps.io/tiles/vector/v1/styles/default-light-standard/style.json";
@@ -225,7 +229,10 @@ export default function CustomerServiceRequestsPage({
   createOnly = false,
   onNavigate,
 }: CustomerServiceRequestsPageProps) {
+  const { addToast } = useOptionalToast();
   const [requests, setRequests] = useState<any[]>([]);
+  const [cancelConfirmRequest, setCancelConfirmRequest] = useState<any | null>(null);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [activeCardFilter, setActiveCardFilter] = useState<string>("ALL");
   const [chatRequest, setChatRequest] = useState<any | null>(null);
 
@@ -247,7 +254,15 @@ export default function CustomerServiceRequestsPage({
     ["COMPLETED", "CLOSED"].includes(s);
 
   const isCancelled = (s: string) =>
-    s === "CANCELLED";
+    [
+      "CANCELLED",
+      "CANCELED",
+      "REJECTED_BY_TECHNICIAN",
+      "REJECTED",
+      "TIMED_OUT",
+      "EXHAUSTED",
+      "FAILED",
+    ].includes(s);
 
   const totalRequestsCount = requests.length;
   const unassignedCount = requests.filter((r) => isUnassigned(normalizeStatus(r.status))).length;
@@ -325,11 +340,35 @@ export default function CustomerServiceRequestsPage({
     },
   ];
 
-  // Filters State: Service Type (16 Official Types), Year, Month (12 Calendar Months), Day
+  // Filters State: Job ID Search, Service Type (16 Official Types), Consolidated Date (Year -> Month -> Day)
+  const [jobIdSearch, setJobIdSearch] = useState<string>("");
   const [serviceTypeFilter, setServiceTypeFilter] = useState<string>("ALL");
   const [yearFilter, setYearFilter] = useState<string>("ALL");
   const [monthFilter, setMonthFilter] = useState<string>("ALL");
   const [dayFilter, setDayFilter] = useState<string>("ALL");
+  const [datePopoverOpen, setDatePopoverOpen] = useState<boolean>(false);
+  const dateFilterRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!datePopoverOpen) return;
+    const handleOutside = (event: MouseEvent) => {
+      if (
+        dateFilterRef.current &&
+        !dateFilterRef.current.contains(event.target as Node)
+      ) {
+        setDatePopoverOpen(false);
+      }
+    };
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDatePopoverOpen(false);
+    };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEsc);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, [datePopoverOpen]);
 
   // Only the 16 authoritative catalogue service types from New Request
   const availableServiceTypes = useMemo(() => {
@@ -351,7 +390,36 @@ export default function CustomerServiceRequestsPage({
     return Array.from(years).sort((a, b) => b.localeCompare(a));
   }, [requests]);
 
+  const daysInSelectedMonth = useMemo(() => {
+    if (monthFilter === "ALL") return 31;
+    const yr = yearFilter !== "ALL" ? Number(yearFilter) : new Date().getFullYear();
+    return new Date(yr, Number(monthFilter), 0).getDate();
+  }, [yearFilter, monthFilter]);
+
+  useEffect(() => {
+    if (dayFilter !== "ALL" && Number(dayFilter) > daysInSelectedMonth) {
+      setDayFilter("ALL");
+    }
+  }, [dayFilter, daysInSelectedMonth]);
+
   const displayedRequests = requests.filter((sr) => {
+    // 0. Exact Job ID Search Filter
+    if (jobIdSearch.trim()) {
+      const normalizedQuery = jobIdSearch
+        .trim()
+        .replace(/^job\s*#?/i, "")
+        .replace(/^#/, "")
+        .trim();
+      const displayJobId = String(sr.linked_job_id || sr.id || "").trim();
+      const reqNum = String(sr.request_number || "").trim().toLowerCase();
+      if (
+        displayJobId !== normalizedQuery &&
+        reqNum !== jobIdSearch.trim().toLowerCase()
+      ) {
+        return false;
+      }
+    }
+
     const s = normalizeStatus(sr.status);
     if (activeCardFilter === "UNASSIGNED" && !isUnassigned(s)) return false;
     if (activeCardFilter === "ASSIGNED" && !isAssigned(s)) return false;
@@ -1880,51 +1948,45 @@ export default function CustomerServiceRequestsPage({
       }
     };
 
-  const handleCancel =
-    async (
-      id: number
-    ) => {
-      if (
-        !confirm(
-          "Cancel this service request?"
-        )
-      ) {
-        return;
-      }
-
-      try {
-        await cancelServiceRequest(
-          id
-        );
-
-        load();
-      } catch (e: any) {
-        const status =
-          e?.response?.status;
-
-        if (status === 401) {
-          alert(
-            "Your session has expired. Please sign in again."
-          );
-        } else if (
-          status === 403
-        ) {
-          alert(
-            "You do not have permission to cancel this service request."
-          );
-        } else {
-          const detail =
-            e?.response?.data?.detail;
-
-          alert(
-            typeof detail ===
-              "string"
-              ? detail
-              : "Failed to cancel service request."
-          );
+  const executeCancelRequest = async (sr: any) => {
+    if (!sr?.id || cancellingId === sr.id) return;
+    setCancellingId(sr.id);
+    try {
+      await cancelServiceRequest(sr.id, "Cancelled by customer");
+      setCancelConfirmRequest(null);
+      addToast({
+        title: "Request Cancelled",
+        message: `Job #${sr.linked_job_id || sr.id} has been cancelled.`,
+        type: "success",
+      });
+      await load();
+    } catch (e: any) {
+      const status = e?.response?.status;
+      let errMsg = "Failed to cancel service request.";
+      if (status === 401) {
+        errMsg = "Your session has expired. Please sign in again.";
+      } else if (status === 403) {
+        errMsg = "You do not have permission to cancel this service request.";
+      } else {
+        const detail = e?.response?.data?.detail;
+        if (typeof detail === "string") {
+          errMsg = detail;
+        } else if (detail?.message) {
+          errMsg = detail.message;
+        } else if (Array.isArray(detail) && detail[0]?.msg) {
+          errMsg = detail[0].msg;
         }
       }
-    };
+      setError(errMsg);
+      addToast({
+        title: "Unable to Cancel",
+        message: errMsg,
+        type: "error",
+      });
+    } finally {
+      setCancellingId(null);
+    }
+  };
 
   const startEdit =
     (sr: any) => {
@@ -2303,149 +2365,408 @@ export default function CustomerServiceRequestsPage({
         </div>
       )}
 
-      {/* Filters Toolbar: Service Type (16 Official Taxonomy Types), Year, Month (All 12 Calendar Months), Day */}
+      {/* Filters Toolbar: Exact Job ID Search, App-Themed Service Dropdown, Consolidated Date Popover */}
       <div
         style={{
           background: "#FFFFFF",
-          borderRadius: "14px",
-          border: "1px solid #E2E8F0",
-          padding: "12px 18px",
+          borderRadius: "16px",
+          border: "1px solid #D1FAE5",
+          padding: "12px 16px",
           marginBottom: "20px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           flexWrap: "wrap",
           gap: "12px",
-          boxShadow: "0 2px 6px rgba(0, 0, 0, 0.03)",
+          boxShadow: "0 2px 8px rgba(5, 150, 105, 0.05)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", flex: 1 }}>
-          {/* Service Type Filter (Only the 16 Official Taxonomy Types from New Request) */}
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "#475569", display: "flex", alignItems: "center", gap: "4px" }}>
-              <Layers size={14} color="#059669" />
-              Service:
-            </span>
-            <select
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", flex: 1 }}>
+          {/* Exact Job ID Search Input */}
+          <div
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              minWidth: "185px",
+              flex: "0 1 220px",
+            }}
+          >
+            <Search
+              size={14}
+              color="#059669"
+              style={{ position: "absolute", left: "11px", pointerEvents: "none" }}
+            />
+            <input
+              type="text"
+              value={jobIdSearch}
+              onChange={(e) => setJobIdSearch(e.target.value)}
+              placeholder="Search Job ID (e.g. 210)"
+              aria-label="Search Job ID"
+              style={{
+                width: "100%",
+                height: "34px",
+                padding: "6px 28px 6px 32px",
+                borderRadius: "8px",
+                border: jobIdSearch ? "1.5px solid #059669" : "1.5px solid #CBD5E1",
+                background: jobIdSearch ? "#F0FDF4" : "#FFFFFF",
+                fontSize: "12.5px",
+                fontWeight: 600,
+                color: "#0F172A",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            {jobIdSearch && (
+              <button
+                type="button"
+                aria-label="Clear Job ID search"
+                onClick={() => setJobIdSearch("")}
+                style={{
+                  position: "absolute",
+                  right: "8px",
+                  background: "transparent",
+                  border: "none",
+                  color: "#64748B",
+                  cursor: "pointer",
+                  padding: "2px",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* App-Themed Service Type Dropdown */}
+          <div style={{ minWidth: "180px", maxWidth: "220px" }}>
+            <CustomerThemedSelect
+              compact
+              ariaLabel="Filter by Service Type"
               value={serviceTypeFilter}
-              onChange={(e) => setServiceTypeFilter(e.target.value)}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "8px",
-                border: "1.5px solid #CBD5E1",
-                background: "#FFFFFF",
-                fontSize: "12px",
-                fontWeight: 600,
-                color: "#0F172A",
-                outline: "none",
-                cursor: "pointer",
-                maxWidth: "200px",
-              }}
-            >
-              <option value="ALL">All Service Types</option>
-              {availableServiceTypes.map((st) => (
-                <option key={st} value={st}>
-                  {st}
-                </option>
-              ))}
-            </select>
+              onChange={setServiceTypeFilter}
+              options={[
+                { value: "ALL", label: "All Service Types" },
+                ...availableServiceTypes.map((st) => ({
+                  value: st,
+                  label: st,
+                })),
+              ]}
+            />
           </div>
 
-          {/* Year Filter */}
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "#475569", display: "flex", alignItems: "center", gap: "4px" }}>
-              <Calendar size={14} color="#059669" />
-              Year:
-            </span>
-            <select
-              value={yearFilter}
-              onChange={(e) => setYearFilter(e.target.value)}
-              style={{
-                padding: "6px 10px",
-                borderRadius: "8px",
-                border: "1.5px solid #CBD5E1",
-                background: "#FFFFFF",
-                fontSize: "12px",
-                fontWeight: 600,
-                color: "#0F172A",
-                outline: "none",
-                cursor: "pointer",
-              }}
-            >
-              <option value="ALL">All Years</option>
-              {availableYears.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+          {/* Consolidated Date Filter Button -> Year / Month / Days Popover */}
+          <div ref={dateFilterRef} style={{ position: "relative" }}>
+            {(() => {
+              const hasDateFilter =
+                yearFilter !== "ALL" || monthFilter !== "ALL" || dayFilter !== "ALL";
+              const monthLabel =
+                ALL_CALENDAR_MONTHS.find((m) => m.value === monthFilter)?.label.split(" - ")[1]?.slice(0, 3) ||
+                "";
+              const dateLabelParts = [
+                dayFilter !== "ALL" ? dayFilter : "",
+                monthLabel,
+                yearFilter !== "ALL" ? yearFilter : "",
+              ].filter(Boolean);
+              const dateButtonText =
+                dateLabelParts.length > 0 ? `Date: ${dateLabelParts.join(" ")}` : "Date";
+
+              return (
+                <>
+                  <button
+                    type="button"
+                    aria-expanded={datePopoverOpen}
+                    onClick={() => setDatePopoverOpen((prev) => !prev)}
+                    style={{
+                      height: "34px",
+                      padding: "6px 12px",
+                      borderRadius: "8px",
+                      border:
+                        hasDateFilter || datePopoverOpen
+                          ? "1.5px solid #059669"
+                          : "1.5px solid #CBD5E1",
+                      background:
+                        hasDateFilter || datePopoverOpen ? "#ECFDF5" : "#FFFFFF",
+                      color: hasDateFilter ? "#065F46" : "#0F172A",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      cursor: "pointer",
+                      boxShadow: datePopoverOpen
+                        ? "0 0 0 3px rgba(5, 150, 105, 0.12)"
+                        : "none",
+                    }}
+                  >
+                    <Calendar size={14} color="#059669" />
+                    <span>{dateButtonText}</span>
+                    <ChevronDown
+                      size={14}
+                      color={datePopoverOpen ? "#059669" : "#64748B"}
+                      style={{
+                        transform: datePopoverOpen ? "rotate(180deg)" : "rotate(0deg)",
+                        transition: "transform 0.15s ease",
+                      }}
+                    />
+                  </button>
+
+                  {datePopoverOpen && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 8px)",
+                        left: 0,
+                        width: "300px",
+                        background: "#FFFFFF",
+                        border: "1.5px solid #A7F3D0",
+                        borderRadius: "14px",
+                        boxShadow: "0 14px 32px rgba(6, 95, 70, 0.16)",
+                        padding: "14px",
+                        zIndex: 1300,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          marginBottom: "10px",
+                        }}
+                      >
+                        <span style={{ fontSize: "12.5px", fontWeight: 800, color: "#065F46" }}>
+                          Filter by Date
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setYearFilter("ALL");
+                            setMonthFilter("ALL");
+                            setDayFilter("ALL");
+                          }}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "#059669",
+                            fontSize: "11.5px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            padding: "2px 6px",
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+
+                      {/* Step 1: Year */}
+                      <div style={{ marginBottom: yearFilter !== "ALL" ? "12px" : "0" }}>
+                        <div style={{ fontSize: "11px", fontWeight: 700, color: "#475569", marginBottom: "6px" }}>
+                          Year
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          {["ALL", ...availableYears].map((yr) => {
+                            const active = yearFilter === yr;
+                            return (
+                              <button
+                                key={yr}
+                                type="button"
+                                onClick={() => {
+                                  setYearFilter(yr);
+                                  if (yr === "ALL") {
+                                    setMonthFilter("ALL");
+                                    setDayFilter("ALL");
+                                  } else if (monthFilter !== "ALL" && dayFilter !== "ALL") {
+                                    const maxDays = new Date(Number(yr), Number(monthFilter), 0).getDate();
+                                    if (Number(dayFilter) > maxDays) {
+                                      setDayFilter("ALL");
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: "6px",
+                                  border: active ? "1.5px solid #059669" : "1px solid #CBD5E1",
+                                  background: active ? "#059669" : "#F8FAFC",
+                                  color: active ? "#FFFFFF" : "#334155",
+                                  fontSize: "11.5px",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {yr === "ALL" ? "All" : yr}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Step 2: Month (appears after Year is selected) */}
+                      {yearFilter !== "ALL" && (
+                        <div style={{ marginBottom: monthFilter !== "ALL" ? "12px" : "0" }}>
+                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#475569", marginBottom: "6px" }}>
+                            Month
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                              gap: "5px",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMonthFilter("ALL");
+                                setDayFilter("ALL");
+                              }}
+                              style={{
+                                gridColumn: "span 4",
+                                padding: "4px 8px",
+                                borderRadius: "6px",
+                                border:
+                                  monthFilter === "ALL"
+                                    ? "1.5px solid #059669"
+                                    : "1px solid #CBD5E1",
+                                background: monthFilter === "ALL" ? "#ECFDF5" : "#F8FAFC",
+                                color: monthFilter === "ALL" ? "#065F46" : "#334155",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              All Months
+                            </button>
+                            {ALL_CALENDAR_MONTHS.map((m) => {
+                              const active = monthFilter === m.value;
+                              const shortName = m.label.split(" - ")[1]?.slice(0, 3) || m.label;
+                              return (
+                                <button
+                                  key={m.value}
+                                  type="button"
+                                  onClick={() => {
+                                    setMonthFilter(m.value);
+                                    if (dayFilter !== "ALL") {
+                                      const maxDays = new Date(
+                                        Number(yearFilter),
+                                        Number(m.value),
+                                        0,
+                                      ).getDate();
+                                      if (Number(dayFilter) > maxDays) {
+                                        setDayFilter("ALL");
+                                      }
+                                    }
+                                  }}
+                                  style={{
+                                    padding: "5px 4px",
+                                    borderRadius: "6px",
+                                    border: active ? "1.5px solid #059669" : "1px solid #E2E8F0",
+                                    background: active ? "#059669" : "#FFFFFF",
+                                    color: active ? "#FFFFFF" : "#334155",
+                                    fontSize: "11px",
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {shortName}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Step 3: Day (appears only after Year & Month are selected) */}
+                      {yearFilter !== "ALL" && monthFilter !== "ALL" && (
+                        <div>
+                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#475569", marginBottom: "6px" }}>
+                            Day ({daysInSelectedMonth} days)
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+                              gap: "4px",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setDayFilter("ALL")}
+                              style={{
+                                gridColumn: "span 7",
+                                padding: "4px 8px",
+                                borderRadius: "6px",
+                                border:
+                                  dayFilter === "ALL"
+                                    ? "1.5px solid #059669"
+                                    : "1px solid #CBD5E1",
+                                background: dayFilter === "ALL" ? "#ECFDF5" : "#F8FAFC",
+                                color: dayFilter === "ALL" ? "#065F46" : "#334155",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              All Days
+                            </button>
+                            {ALL_CALENDAR_DAYS.slice(0, daysInSelectedMonth).map((d) => {
+                              const active = dayFilter === d.value;
+                              return (
+                                <button
+                                  key={d.value}
+                                  type="button"
+                                  onClick={() => setDayFilter(d.value)}
+                                  style={{
+                                    padding: "4px 0",
+                                    borderRadius: "6px",
+                                    border: active ? "1.5px solid #059669" : "1px solid #E2E8F0",
+                                    background: active ? "#059669" : "#FFFFFF",
+                                    color: active ? "#FFFFFF" : "#334155",
+                                    fontSize: "11px",
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {Number(d.value)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ marginTop: "12px", display: "flex", justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          onClick={() => setDatePopoverOpen(false)}
+                          style={{
+                            padding: "6px 14px",
+                            borderRadius: "8px",
+                            border: "none",
+                            background: "#059669",
+                            color: "#FFFFFF",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
-          {/* Month-Wise Filter (All 12 Calendar Months) */}
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "#475569", display: "flex", alignItems: "center", gap: "4px" }}>
-              <Calendar size={14} color="#059669" />
-              Month:
-            </span>
-            <select
-              value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "8px",
-                border: "1.5px solid #CBD5E1",
-                background: "#FFFFFF",
-                fontSize: "12px",
-                fontWeight: 600,
-                color: "#0F172A",
-                outline: "none",
-                cursor: "pointer",
-              }}
-            >
-              <option value="ALL">All Months</option>
-              {ALL_CALENDAR_MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Day-Wise Date Filter (1 to 31) */}
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "#475569", display: "flex", alignItems: "center", gap: "4px" }}>
-              <Clock size={14} color="#059669" />
-              Day:
-            </span>
-            <select
-              value={dayFilter}
-              onChange={(e) => setDayFilter(e.target.value)}
-              style={{
-                padding: "6px 10px",
-                borderRadius: "8px",
-                border: "1.5px solid #CBD5E1",
-                background: "#FFFFFF",
-                fontSize: "12px",
-                fontWeight: 600,
-                color: "#0F172A",
-                outline: "none",
-                cursor: "pointer",
-              }}
-            >
-              <option value="ALL">All Days</option>
-              {ALL_CALENDAR_DAYS.map((d) => (
-                <option key={d.value} value={d.value}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Reset Filters button */}
-          {(serviceTypeFilter !== "ALL" || yearFilter !== "ALL" || monthFilter !== "ALL" || dayFilter !== "ALL") && (
+          {/* Clear All Filters button */}
+          {(jobIdSearch || serviceTypeFilter !== "ALL" || yearFilter !== "ALL" || monthFilter !== "ALL" || dayFilter !== "ALL") && (
             <button
               type="button"
               onClick={() => {
+                setJobIdSearch("");
                 setServiceTypeFilter("ALL");
                 setYearFilter("ALL");
                 setMonthFilter("ALL");
@@ -2455,7 +2776,7 @@ export default function CustomerServiceRequestsPage({
                 background: "#FEF2F2",
                 border: "1px solid #FECACA",
                 borderRadius: "8px",
-                padding: "5px 12px",
+                padding: "6px 12px",
                 fontSize: "11.5px",
                 fontWeight: 700,
                 color: "#DC2626",
@@ -2466,14 +2787,24 @@ export default function CustomerServiceRequestsPage({
               }}
             >
               <X size={13} />
-              Reset Filters
+              Clear
             </button>
           )}
         </div>
 
         {/* Total Shown Count */}
-        <div style={{ fontSize: "12px", fontWeight: 700, color: "#64748B" }}>
-          Showing <span style={{ color: "#059669" }}>{displayedRequests.length}</span> of {requests.length} requests
+        <div
+          style={{
+            fontSize: "12px",
+            fontWeight: 700,
+            color: "#065F46",
+            background: "#ECFDF5",
+            border: "1px solid #A7F3D0",
+            borderRadius: "999px",
+            padding: "4px 12px",
+          }}
+        >
+          <span>{displayedRequests.length}</span> / {requests.length} requests
         </div>
       </div>
 
@@ -2609,7 +2940,17 @@ export default function CustomerServiceRequestsPage({
           {displayedRequests.map((sr) => {
             const rawStatus = normalizeStatus(sr.status);
             const displayStatus = getDisplayStatusText(sr.status);
-            const canCancel = ["CREATED", "PENDING", "UNASSIGNED", "ASSIGNED"].includes(rawStatus);
+            const canCancel = [
+              "CREATED",
+              "PENDING",
+              "UNASSIGNED",
+              "QUEUED",
+              "PLANNED",
+              "AWAITING_ACCEPTANCE",
+              "DISPATCHED",
+              "ASSIGNED",
+              "ACCEPTED",
+            ].includes(rawStatus);
 
             return (
               <div
@@ -2731,7 +3072,7 @@ export default function CustomerServiceRequestsPage({
                   {canCancel && (
                     <button
                       type="button"
-                      onClick={() => void handleCancel(sr.id)}
+                      onClick={() => setCancelConfirmRequest(sr)}
                       style={{
                         border: "1px solid #FECACA",
                         background: "#FEF2F2",
@@ -3090,48 +3431,18 @@ export default function CustomerServiceRequestsPage({
                       </span>
                     </label>
 
-                    <select
-                      required
-                      style={{
-                        ...inputStyle,
-                        color:
-                          form.service_type
-                            ? "#111827"
-                            : "#9CA3AF",
-                      }}
-                      value={
-                        form.service_type
-                      }
-                      onChange={(
-                        e
-                      ) =>
-                        upd(
-                          "service_type",
-                          e.target
-                            .value
-                        )
-                      }
-                    >
-                      <option value="">
-                        select service
-                      </option>
-
-                      <option value="HVAC Repair">
-                        HVAC Repair
-                      </option>
-
-                      <option value="Electrical">
-                        Electrical
-                      </option>
-
-                      <option value="Plumbing">
-                        Plumbing
-                      </option>
-
-                      <option value="General Maintenance">
-                        General Maintenance
-                      </option>
-                    </select>
+                    <CustomerThemedSelect
+                      value={form.service_type}
+                      onChange={(val) => upd("service_type", val)}
+                      placeholder="select service"
+                      options={[
+                        { value: "", label: "select service" },
+                        { value: "HVAC Repair", label: "HVAC Repair" },
+                        { value: "Electrical", label: "Electrical" },
+                        { value: "Plumbing", label: "Plumbing" },
+                        { value: "General Maintenance", label: "General Maintenance" },
+                      ]}
+                    />
                   </div>
 
                   <div>
@@ -3151,49 +3462,18 @@ export default function CustomerServiceRequestsPage({
                       </span>
                     </label>
 
-                    <select
-                      required
-                      style={{
-                        ...inputStyle,
-                        color:
-                          form.priority !==
-                          "select priority"
-                            ? "#111827"
-                            : "#9CA3AF",
-                      }}
-                      value={
-                        form.priority
-                      }
-                      onChange={(
-                        e
-                      ) =>
-                        upd(
-                          "priority",
-                          e.target
-                            .value
-                        )
-                      }
-                    >
-                      <option value="select priority">
-                        select priority
-                      </option>
-
-                      <option value="LOW">
-                        LOW
-                      </option>
-
-                      <option value="MEDIUM">
-                        MEDIUM
-                      </option>
-
-                      <option value="HIGH">
-                        HIGH
-                      </option>
-
-                      <option value="URGENT">
-                        URGENT
-                      </option>
-                    </select>
+                    <CustomerThemedSelect
+                      value={form.priority}
+                      onChange={(val) => upd("priority", val)}
+                      placeholder="select priority"
+                      options={[
+                        { value: "select priority", label: "select priority" },
+                        { value: "LOW", label: "LOW" },
+                        { value: "MEDIUM", label: "MEDIUM" },
+                        { value: "HIGH", label: "HIGH" },
+                        { value: "URGENT", label: "URGENT" },
+                      ]}
+                    />
                   </div>
                 </div>
 
@@ -4355,6 +4635,115 @@ export default function CustomerServiceRequestsPage({
                   )}
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Confirmation Popup for Cancelling Service Request */}
+      {cancelConfirmRequest && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.55)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px",
+          }}
+          onClick={() => {
+            if (!cancellingId) setCancelConfirmRequest(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-confirm-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#FFFFFF",
+              borderRadius: "18px",
+              border: "1px solid #FECACA",
+              boxShadow: "0 20px 44px rgba(15, 23, 42, 0.2)",
+              width: "100%",
+              maxWidth: "400px",
+              padding: "24px",
+              boxSizing: "border-box",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+              <div
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "12px",
+                  background: "#FEE2E2",
+                  color: "#DC2626",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <AlertCircle size={22} />
+              </div>
+              <div>
+                <h3
+                  id="cancel-confirm-title"
+                  style={{ margin: 0, fontSize: "16px", fontWeight: 800, color: "#0F172A" }}
+                >
+                  Cancel Service Request?
+                </h3>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "#64748B", marginTop: "2px" }}>
+                  Job #{cancelConfirmRequest.linked_job_id || cancelConfirmRequest.id} · {cancelConfirmRequest.title}
+                </div>
+              </div>
+            </div>
+
+            <p style={{ margin: "0 0 20px 0", fontSize: "13.5px", color: "#475569", lineHeight: 1.5 }}>
+              Are you sure you want to cancel this request? Dispatching will be stopped immediately and the job will be marked as cancelled.
+            </p>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <button
+                type="button"
+                disabled={Boolean(cancellingId)}
+                onClick={() => setCancelConfirmRequest(null)}
+                style={{
+                  padding: "9px 16px",
+                  borderRadius: "10px",
+                  border: "1.5px solid #CBD5E1",
+                  background: "#FFFFFF",
+                  color: "#334155",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: cancellingId ? "not-allowed" : "pointer",
+                }}
+              >
+                Keep Request
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(cancellingId)}
+                onClick={() => void executeCancelRequest(cancelConfirmRequest)}
+                style={{
+                  padding: "9px 18px",
+                  borderRadius: "10px",
+                  border: "none",
+                  background: cancellingId ? "#94A3B8" : "#DC2626",
+                  color: "#FFFFFF",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  cursor: cancellingId ? "not-allowed" : "pointer",
+                  boxShadow: "0 2px 6px rgba(220, 38, 38, 0.25)",
+                }}
+              >
+                {cancellingId ? "Cancelling..." : "Confirm Cancel"}
+              </button>
             </div>
           </div>
         </div>

@@ -19,6 +19,7 @@ import {
 } from "../../services/customerPortalService";
 import useAuthStore from "../../store/authStore";
 import LocationPickerMap from "../../components/customer-tracking/LocationPickerMap";
+import { useOptionalToast } from "../../hooks/useToast";
 
 const inputStyle = {
   width: "100%",
@@ -54,6 +55,7 @@ interface CustomerProfilePageProps {
 
 export default function CustomerProfilePage({ onClose, onNavigate }: CustomerProfilePageProps = {}) {
   const { user } = useAuthStore();
+  const { addToast } = useOptionalToast();
 
   const [isNew, setIsNew] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -65,7 +67,6 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
   const [tempAddress, setTempAddress] = useState<string>("");
 
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
   const [form, setForm] = useState({
     full_name: "Lincy K",
@@ -149,7 +150,6 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
   const handleOpenEdit = () => {
     setEditForm({ ...form });
     setError("");
-    setSuccess("");
     setIsEditing(true);
   };
 
@@ -176,39 +176,38 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
     const state = editForm.state.trim();
     const pincode = editForm.pincode.trim();
 
-    if (!fullName) {
-      setError("Full name is required");
+    const failValidation = (msg: string) => {
+      setError(msg);
+      addToast({ title: "Profile Validation", message: msg, type: "error" });
       return false;
+    };
+
+    if (!fullName) {
+      return failValidation("Full name is required");
     }
 
     if (!mobileNumber) {
-      setError("Mobile number is required");
-      return false;
+      return failValidation("Mobile number is required");
     }
 
     if (!/^\d{10}$/.test(mobileNumber)) {
-      setError("Mobile number must contain exactly 10 digits");
-      return false;
+      return failValidation("Mobile number must contain exactly 10 digits");
     }
 
     if (!address) {
-      setError("Street address is required");
-      return false;
+      return failValidation("Street address is required");
     }
 
     if (!city) {
-      setError("City / District is required");
-      return false;
+      return failValidation("City / District is required. Use GPS or Pick on a Map.");
     }
 
     if (!state) {
-      setError("State / Region is required");
-      return false;
+      return failValidation("State / Region is required. Use GPS or Pick on a Map.");
     }
 
     if (!pincode) {
-      setError("Pincode is required");
-      return false;
+      return failValidation("Pincode is required. Use GPS or Pick on a Map.");
     }
 
     return true;
@@ -219,7 +218,6 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
     if (saving) return;
 
     setError("");
-    setSuccess("");
 
     if (!validateForm()) {
       return;
@@ -265,13 +263,23 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
         );
       }
 
-      setSuccess("Profile updated successfully!");
+      addToast({
+        title: "Profile Updated",
+        message: "Profile updated successfully!",
+        type: "success",
+      });
       setIsEditing(false);
     } catch (requestError: any) {
-      setError(
+      const saveErrMsg =
         requestError?.response?.data?.message ||
-          "We couldn't save your profile. Please try again.",
-      );
+        requestError?.response?.data?.detail ||
+        "We couldn't save your profile. Please try again.";
+      setError(saveErrMsg);
+      addToast({
+        title: "Profile Update Failed",
+        message: saveErrMsg,
+        type: "error",
+      });
     } finally {
       setSaving(false);
     }
@@ -289,44 +297,91 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
     setLocating(true);
     setError("");
 
+    const resolveGeoDetails = async (lat: number, lng: number) => {
+      let address = "";
+      let city = "";
+      let state = "";
+      let pincode = "";
+
+      try {
+        const response = await reverseLocation(lat, lng);
+        if (response?.data) {
+          address =
+            (response.data.verified
+              ? response.data.address || response.data.formatted_address || ""
+              : response.data.address || response.data.formatted_address || "") || "";
+          city = response.data.city || "";
+          state = response.data.state || "";
+          pincode =
+            response.data.pincode || address.match(/\b\d{6}\b/)?.[0] || "";
+        }
+      } catch {
+        // Fallback to OSM Nominatim below
+      }
+
+      if (!city || !state || !pincode || !address) {
+        try {
+          const osmRes = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+          );
+          const osm = await osmRes.json();
+          const addrObj = osm?.address || {};
+          if (!address && osm?.display_name) address = osm.display_name;
+          if (!city) {
+            city =
+              addrObj.city ||
+              addrObj.town ||
+              addrObj.village ||
+              addrObj.state_district ||
+              addrObj.county ||
+              "";
+          }
+          if (!state) state = addrObj.state || "";
+          if (!pincode) {
+            pincode =
+              addrObj.postcode || address.match(/\b\d{6}\b/)?.[0] || "";
+          }
+        } catch {
+          // Ignore network fallback error
+        }
+      }
+
+      return { address, city, state, pincode };
+    };
+
     navigator.geolocation.getCurrentPosition(
       async ({ coords }) => {
         try {
-          const response = await reverseLocation(
+          const resolved = await resolveGeoDetails(
             coords.latitude,
             coords.longitude,
           );
 
-          const address =
-            response?.data?.verified
-              ? response.data.address ||
-                response.data.formatted_address ||
-                ""
-              : "";
-
-          const detectedPincode =
-            response?.data?.pincode ||
-            address.match(/\b\d{6}\b/)?.[0] ||
-            "";
-
           setEditForm((prev) => ({
             ...prev,
-            address: address || prev.address,
-            city: response?.data?.city || prev.city,
-            state: response?.data?.state || prev.state,
-            pincode: detectedPincode || prev.pincode,
+            address: resolved.address || prev.address,
+            city: resolved.city || prev.city,
+            state: resolved.state || prev.state,
+            pincode: resolved.pincode || prev.pincode,
           }));
+          addToast({
+            title: "Location Acquired",
+            message: "Address, district, state, and pincode updated from GPS.",
+            type: "success",
+          });
         } catch {
-          setError(
-            "Unable to auto-detect location. Please enter manually.",
-          );
+          const msg = "Unable to auto-detect location. Please pick on the map.";
+          setError(msg);
+          addToast({ title: "Location Error", message: msg, type: "error" });
         } finally {
           setLocating(false);
         }
       },
       () => {
         setLocating(false);
-        setError("Location permission denied or timed out.");
+        const msg = "Location permission denied or timed out.";
+        setError(msg);
+        addToast({ title: "Location Error", message: msg, type: "error" });
       },
       { enableHighAccuracy: true, timeout: 10000 },
     );
@@ -439,29 +494,6 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
           </button>
         </div>
       </div>
-
-      {/* Top success alert if recently updated */}
-      {success && (
-        <div
-          style={{
-            maxWidth: "1150px",
-            margin: "0 auto 20px auto",
-            background: "#ECFDF5",
-            border: "1px solid #A7F3D0",
-            borderRadius: "10px",
-            padding: "12px 18px",
-            color: "#065F46",
-            fontSize: "14px",
-            fontWeight: 600,
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-          }}
-        >
-          <CheckCircle size={18} color="#059669" />
-          <span>{success}</span>
-        </div>
-      )}
 
       {/* Main 2-Card Layout matching Reference Image 100% */}
       <div
@@ -876,22 +908,57 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
                   type="button"
                   onClick={async () => {
                     if (tempCoords.lat && tempCoords.lng) {
+                      let addr = tempAddress || "";
+                      let city = "";
+                      let state = "";
+                      let pincode = addr.match(/\b\d{6}\b/)?.[0] || "";
                       try {
                         const res = await reverseLocation(tempCoords.lat, tempCoords.lng);
-                        const addr = tempAddress || res?.data?.address || "";
-                        const pincode = res?.data?.pincode || addr.match(/\b\d{6}\b/)?.[0] || "";
-                        setEditForm((prev) => ({
-                          ...prev,
-                          address: addr || prev.address,
-                          city: res?.data?.city || prev.city,
-                          state: res?.data?.state || prev.state,
-                          pincode: pincode || prev.pincode,
-                        }));
+                        addr = addr || res?.data?.address || res?.data?.formatted_address || "";
+                        city = res?.data?.city || "";
+                        state = res?.data?.state || "";
+                        pincode = res?.data?.pincode || addr.match(/\b\d{6}\b/)?.[0] || pincode;
                       } catch {
-                        if (tempAddress) {
-                          setEditForm((prev) => ({ ...prev, address: tempAddress }));
+                        // Fallback below
+                      }
+                      if (!city || !state || !pincode) {
+                        try {
+                          const osmRes = await fetch(
+                            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${tempCoords.lat}&lon=${tempCoords.lng}&zoom=18&addressdetails=1`
+                          );
+                          const osm = await osmRes.json();
+                          const addrObj = osm?.address || {};
+                          if (!addr && osm?.display_name) addr = osm.display_name;
+                          if (!city) {
+                            city =
+                              addrObj.city ||
+                              addrObj.town ||
+                              addrObj.village ||
+                              addrObj.state_district ||
+                              addrObj.county ||
+                              "";
+                          }
+                          if (!state) state = addrObj.state || "";
+                          if (!pincode) {
+                            pincode =
+                              addrObj.postcode || addr.match(/\b\d{6}\b/)?.[0] || "";
+                          }
+                        } catch {
+                          // Ignore fallback error
                         }
                       }
+                      setEditForm((prev) => ({
+                        ...prev,
+                        address: addr || prev.address,
+                        city: city || prev.city,
+                        state: state || prev.state,
+                        pincode: pincode || prev.pincode,
+                      }));
+                      addToast({
+                        title: "Location Selected",
+                        message: "Address, district, state, and pincode updated from map.",
+                        type: "success",
+                      });
                     }
                     setShowMapModal(false);
                   }}
@@ -1046,7 +1113,12 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
                   type="tel"
                   style={inputStyle}
                   value={editForm.mobile_number}
-                  onChange={(e) => updEdit("mobile_number", e.target.value)}
+                  onChange={(e) =>
+                    updEdit(
+                      "mobile_number",
+                      e.target.value.replace(/\D/g, "").slice(0, 10),
+                    )
+                  }
                   placeholder="e.g. 1234567098"
                   maxLength={10}
                   disabled={saving}
@@ -1124,7 +1196,7 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
                 />
               </div>
 
-              {/* City and State Row */}
+              {/* City and State Row (Auto-filled from GPS / Map Picker, not manually editable) */}
               <div
                 style={{
                   display: "grid",
@@ -1139,11 +1211,16 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
                   </label>
                   <input
                     type="text"
-                    style={inputStyle}
+                    readOnly
+                    title="Auto-filled from Choose Current Location or Pick on a Map"
+                    style={{
+                      ...inputStyle,
+                      background: "#F8FAFC",
+                      color: "#475569",
+                      cursor: "not-allowed",
+                    }}
                     value={editForm.city}
-                    onChange={(e) => updEdit("city", e.target.value)}
-                    placeholder="e.g. Pudukkottai"
-                    disabled={saving}
+                    placeholder="Auto-filled from location"
                   />
                 </div>
 
@@ -1154,16 +1231,21 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
                   </label>
                   <input
                     type="text"
-                    style={inputStyle}
+                    readOnly
+                    title="Auto-filled from Choose Current Location or Pick on a Map"
+                    style={{
+                      ...inputStyle,
+                      background: "#F8FAFC",
+                      color: "#475569",
+                      cursor: "not-allowed",
+                    }}
                     value={editForm.state}
-                    onChange={(e) => updEdit("state", e.target.value)}
-                    placeholder="e.g. Tamil Nadu"
-                    disabled={saving}
+                    placeholder="Auto-filled from location"
                   />
                 </div>
               </div>
 
-              {/* Pincode */}
+              {/* Pincode (Auto-filled from GPS / Map Picker, not manually editable) */}
               <div>
                 <label style={labelStyle}>
                   Pincode
@@ -1171,13 +1253,21 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
                 </label>
                 <input
                   type="text"
-                  style={inputStyle}
+                  readOnly
+                  title="Auto-filled from Choose Current Location or Pick on a Map"
+                  style={{
+                    ...inputStyle,
+                    background: "#F8FAFC",
+                    color: "#475569",
+                    cursor: "not-allowed",
+                  }}
                   value={editForm.pincode}
-                  onChange={(e) => updEdit("pincode", e.target.value)}
-                  placeholder="e.g. 622309"
+                  placeholder="Auto-filled from location"
                   maxLength={6}
-                  disabled={saving}
                 />
+                <div style={{ fontSize: "11px", color: "#64748B", marginTop: "4px" }}>
+                  City / District, State, and Pincode update automatically when you use Choose Current Location or Pick on a Map.
+                </div>
               </div>
 
               {/* Modal Footer Buttons */}

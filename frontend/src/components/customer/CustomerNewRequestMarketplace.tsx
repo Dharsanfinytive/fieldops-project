@@ -36,8 +36,8 @@ import {
 import CategoryUniqueVisual from "./CategoryUniqueVisual";
 import { getCategoryCardImage, getIssueCardImage } from "../../data/categoryImages";
 import { getServiceTypeHdImage } from "../../data/serviceTypeHdImages";
-import { Lock, ShieldAlert, Filter } from "lucide-react";
-import { useToast } from "../../hooks/useToast";
+import { Lock, ShieldAlert, Filter, Edit2, RotateCcw } from "lucide-react";
+import { useOptionalToast } from "../../hooks/useToast";
 
 interface CustomerNewRequestMarketplaceProps {
   onNavigate?: (tab: string) => void;
@@ -69,6 +69,26 @@ const TIME_SLOTS = [
   "06:30 PM",
   "07:00 PM",
 ];
+
+// Convert slot strings like "08:30 AM" / "07:00 PM" to minutes since midnight
+const parseSlotMinutes = (slot: string): number => {
+  const match = slot.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return -1;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const period = match[3].toUpperCase();
+  if (period === "PM" && hours !== 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+  return hours * 60 + minutes;
+};
+
+// Format local calendar date as YYYY-MM-DD (avoids UTC date shift)
+const formatLocalDateStr = (d: Date): string => {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
 
 // Helper to normalize strings for robust fuzzy matching
 const normalize = (s?: string) =>
@@ -127,7 +147,7 @@ const itemMatchesCategory = (
 export default function CustomerNewRequestMarketplace({
   onNavigate,
 }: CustomerNewRequestMarketplaceProps) {
-  const { addToast } = useToast();
+  const { addToast } = useOptionalToast();
 
   // Search input in hero banner
   const [searchQuery, setSearchQuery] = useState("");
@@ -148,12 +168,7 @@ export default function CustomerNewRequestMarketplace({
   // LEVEL 3: ISSUES (image cards of selected category)
   // LEVEL 4: BOOKING_FORM (date, time chips, address text only, map picker, contact)
   type ViewLevel = "SERVICES" | "CATEGORIES" | "ISSUES" | "BOOKING_FORM";
-  const [viewLevel, setViewLevel] = useState<ViewLevel>(() => {
-    const savedLevel = window.history.state?.fieldOps?.bookingLevel;
-    return ["SERVICES", "CATEGORIES", "ISSUES", "BOOKING_FORM"].includes(savedLevel)
-      ? savedLevel as ViewLevel
-      : "SERVICES";
-  });
+  const [viewLevel, setViewLevel] = useState<ViewLevel>("SERVICES");
 
   // Keep browser Back/Forward in sync with the marketplace's nested booking screens.
   const changeViewLevel = (level: ViewLevel) => {
@@ -188,6 +203,9 @@ export default function CustomerNewRequestMarketplace({
       const level = event.state?.fieldOps?.bookingLevel;
       if (["SERVICES", "CATEGORIES", "ISSUES", "BOOKING_FORM"].includes(level)) {
         setViewLevel(level as ViewLevel);
+        if (level !== "BOOKING_FORM") {
+          setSearchQuery("");
+        }
       }
     };
     window.addEventListener("popstate", handleBookingPopState);
@@ -205,7 +223,7 @@ export default function CustomerNewRequestMarketplace({
   const [issueFilter, setIssueFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const [unavailableModalIssue, setUnavailableModalIssue] = useState<string | null>(null);
 
-  // 5-Day window options: Today (disabled) + Next 4 Days (selectable)
+  // 5-Day window options: Today (slots >= 3h from now) + Next 4 Days
   const dayOptions = useMemo(() => {
     const options: {
       dateStr: string;
@@ -219,7 +237,7 @@ export default function CustomerNewRequestMarketplace({
     for (let i = 0; i < 5; i++) {
       const d = new Date(now);
       d.setDate(now.getDate() + i);
-      const dateStr = d.toISOString().split("T")[0];
+      const dateStr = formatLocalDateStr(d);
 
       let dayLabel = "";
       if (i === 0) dayLabel = "Today";
@@ -238,7 +256,7 @@ export default function CustomerNewRequestMarketplace({
         dayLabel,
         dateDisplay,
         isToday: i === 0,
-        isSelectable: i > 0, // Today is disabled; only next 4 days are selectable
+        isSelectable: true,
       });
     }
     return options;
@@ -291,6 +309,8 @@ export default function CustomerNewRequestMarketplace({
   const [priority, setPriority] = useState<string>("MEDIUM");
   const [contactNumber, setContactNumber] = useState<string>("");
   const [locationAddress, setLocationAddress] = useState<string>("");
+  const [isEditingLocation, setIsEditingLocation] = useState<boolean>(false);
+  const [isEditingPhone, setIsEditingPhone] = useState<boolean>(false);
   const [siteCoords, setSiteCoords] = useState<{ lat?: number; lng?: number }>({});
   const [isLocating, setIsLocating] = useState<boolean>(false);
   const [additionalNotes, setAdditionalNotes] = useState<string>("");
@@ -320,23 +340,42 @@ export default function CustomerNewRequestMarketplace({
     }
   };
 
-  // Load catalog and customer profile on mount
-  useEffect(() => {
-    fetchActiveCatalog();
+  // Hydrate location & 10-digit phone directly from customer profile
+  const loadProfileDefaults = () => {
+    const applyProfile = (prof: any) => {
+      if (!prof) return;
+      const digitsOnly = String(prof.mobile_number || "").replace(/\D/g, "").slice(0, 10);
+      setContactNumber(digitsOnly);
+      const fullAddr =
+        [prof.address, prof.city, prof.state, prof.pincode]
+          .filter(Boolean)
+          .join(", ") ||
+        prof.address ||
+        prof.city ||
+        "";
+      setLocationAddress(fullAddr);
+      setIsEditingLocation(false);
+      setIsEditingPhone(false);
+    };
+
+    if (profileData) {
+      applyProfile(profileData);
+    }
 
     getCustomerProfile()
       .then((res) => {
         if (res?.data) {
-          const prof = res.data;
-          setProfileData(prof);
-          if (prof.mobile_number) setContactNumber(prof.mobile_number);
-          const fullAddr = [prof.address, prof.city, prof.state, prof.pincode]
-            .filter(Boolean)
-            .join(", ") || prof.address || prof.city || "";
-          if (fullAddr) setLocationAddress(fullAddr);
+          setProfileData(res.data);
+          applyProfile(res.data);
         }
       })
       .catch(() => {});
+  };
+
+  // Load catalog and customer profile on mount
+  useEffect(() => {
+    fetchActiveCatalog();
+    loadProfileDefaults();
 
     const onFocus = () => fetchActiveCatalog();
     window.addEventListener("focus", onFocus);
@@ -346,7 +385,27 @@ export default function CustomerNewRequestMarketplace({
       window.removeEventListener("focus", onFocus);
       clearInterval(interval);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Always refresh default profile location and phone whenever entering the booking form
+  useEffect(() => {
+    if (
+      (viewLevel === "CATEGORIES" && !selectedServiceType) ||
+      (viewLevel === "ISSUES" && (!selectedServiceType || !selectedCategory)) ||
+      (viewLevel === "BOOKING_FORM" &&
+        (!selectedServiceType || !selectedCategory || !selectedIssue))
+    ) {
+      setViewLevel("SERVICES");
+    }
+  }, [viewLevel, selectedServiceType, selectedCategory, selectedIssue]);
+
+  useEffect(() => {
+    if (viewLevel === "BOOKING_FORM") {
+      loadProfileDefaults();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewLevel]);
 
   // Compute active item counts per service type
   const getActiveItemsForType = (sType: TaxonomyServiceType) => {
@@ -425,6 +484,7 @@ export default function CustomerNewRequestMarketplace({
     setPreferredTimeSlot("");
     setSubmissionSuccess(null);
     setSubmitError(null);
+    loadProfileDefaults();
     changeViewLevel("BOOKING_FORM");
   };
 
@@ -457,6 +517,9 @@ export default function CustomerNewRequestMarketplace({
         setSelectedServiceType(matchedType);
         setSelectedCategory(matchedCat || matchedType.categories[0]);
         setSelectedIssue(matchingItem.issue);
+        setPreferredDate("");
+        setPreferredTimeSlot("");
+        loadProfileDefaults();
         changeViewLevel("BOOKING_FORM");
         setSubmissionSuccess(null);
         setSubmitError(null);
@@ -580,24 +643,61 @@ export default function CustomerNewRequestMarketplace({
     e.preventDefault();
     if (!selectedServiceType || !selectedCategory) return;
 
+    const showValidationToast = (message: string, title = "Missing Required Field") => {
+      setSubmitError(null);
+      addToast({ title, message, type: "error" });
+    };
+
     if (!selectedIssue) {
-      setSubmitError("Please select a diagnostic issue");
+      showValidationToast("Please select a diagnostic issue.");
       return;
     }
     if (!preferredDate) {
-      setSubmitError("Please select your preferred appointment date from the available days");
+      showValidationToast("Please select your preferred appointment date.");
       return;
     }
     if (!preferredTimeSlot) {
-      setSubmitError("Please select your preferred appointment time slot");
+      showValidationToast("Please select your preferred appointment time slot.");
       return;
     }
+
+    const now = new Date();
+    const todayStr = formatLocalDateStr(now);
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    if (preferredDate === todayStr) {
+      if (now.getHours() >= 19) {
+        addToast({
+          title: "Today's Service Closed",
+          message:
+            "Service is unavailable after 7:00 PM for today. Please select tomorrow's date and time.",
+          type: "warning",
+        });
+        return;
+      }
+      if (parseSlotMinutes(preferredTimeSlot) < nowMinutes + 180) {
+        showValidationToast(
+          "Selected time slot is unavailable for today. Please choose another available slot.",
+          "Slot Unavailable",
+        );
+        return;
+      }
+    }
+
     if (!locationAddress.trim()) {
-      setSubmitError("Please provide your service location address");
+      showValidationToast("Please provide your service location address.");
       return;
     }
-    if (!contactNumber.trim()) {
-      setSubmitError("Please provide a contact phone number");
+
+    const cleanedPhone = contactNumber.replace(/\D/g, "").trim();
+    if (!cleanedPhone) {
+      showValidationToast("Please provide a contact phone number.");
+      return;
+    }
+    if (!/^\d{10}$/.test(cleanedPhone)) {
+      showValidationToast(
+        "Contact phone number must be exactly 10 digits.",
+        "Invalid Phone Number",
+      );
       return;
     }
 
@@ -615,7 +715,7 @@ export default function CustomerNewRequestMarketplace({
       priority: priority || "MEDIUM",
       preferred_visit_date: preferredDate || undefined,
       preferred_visit_time: preferredTimeSlot || undefined,
-      contact_number: contactNumber.trim(),
+      contact_number: cleanedPhone,
       location: locationAddress.trim(),
       site_latitude: siteCoords.lat,
       site_longitude: siteCoords.lng,
@@ -623,7 +723,11 @@ export default function CustomerNewRequestMarketplace({
 
     try {
       const res = await createServiceRequest(payload);
-      const createdId = res.data?.id || res.data?.created_job?.id || 101;
+      const createdId =
+        res.data?.created_job?.id ??
+        res.data?.linked_job_id ??
+        res.data?.id ??
+        101;
       setSubmissionSuccess({ id: createdId });
       addToast({
         title: "Request Submitted Successfully",
@@ -638,7 +742,12 @@ export default function CustomerNewRequestMarketplace({
           ? detail
           : detail?.message ||
             "Failed to submit service request. Please check your inputs and try again.";
-      setSubmitError(errorMsg);
+      setSubmitError(null);
+      addToast({
+        title: "Submission Failed",
+        message: errorMsg,
+        type: "error",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -743,6 +852,25 @@ export default function CustomerNewRequestMarketplace({
                   minWidth: 0,
                 }}
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setSearchQuery("")}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#64748B",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "4px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <X size={15} />
+                </button>
+              )}
               <button
                 type="submit"
                 style={{
@@ -1847,7 +1975,7 @@ export default function CustomerNewRequestMarketplace({
               </div>
 
               {/* The Booking Form */}
-              <form onSubmit={handleBookingSubmit}>
+              <form noValidate onSubmit={handleBookingSubmit}>
                   {/* Selected Issue Summary Banner (NO CODE BADGES) */}
                   <div
                     style={{
@@ -1904,225 +2032,244 @@ export default function CustomerNewRequestMarketplace({
                     </button>
                   </div>
 
-                  {submitError && (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: "8px",
-                        background: "#FEF2F2",
-                        border: "1px solid #FCA5A5",
-                        borderRadius: "8px",
-                        padding: "12px 14px",
-                        marginBottom: "20px",
-                        color: "#991B1B",
-                        fontSize: "13px",
-                      }}
-                    >
-                      <AlertCircle
-                        size={17}
-                        style={{ flexShrink: 0, marginTop: "1px" }}
-                      />
-                      <span>{submitError}</span>
-                    </div>
-                  )}
+                  {/* 1. Preferred Appointment Date (Today + Next 4 Days, Today requires +3h lead before 7 PM) */}
+                  {(() => {
+                    const now = new Date();
+                    const todayStr = formatLocalDateStr(now);
+                    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+                    const minTodayMinutes = nowMinutes + 180;
+                    const todaySlotsAvailable =
+                      now.getHours() < 19 &&
+                      TIME_SLOTS.some(
+                        (s) => parseSlotMinutes(s) >= minTodayMinutes,
+                      );
 
-                  {/* 1. Preferred Appointment Date (5-Day Custom Box Chips: Today disabled, next 4 days selectable) */}
-                  <div style={{ marginBottom: "26px" }}>
-                    <div style={{ marginBottom: "10px" }}>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "14px",
-                          fontWeight: 800,
-                          color: "#0F172A",
-                        }}
-                      >
-                        1. Preferred Appointment Date{" "}
-                        <span style={{ color: "#EF4444" }}>*</span>
-                      </label>
-                      <span style={{ fontSize: "12.5px", color: "#64748B" }}>
-                        Choose an appointment date from the next 4 available days. Same-day booking is closed.
-                      </span>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-                        gap: "12px",
-                      }}
-                    >
-                      {dayOptions.map((opt) => {
-                        const isSelected = preferredDate === opt.dateStr;
-
-                        if (opt.isToday) {
-                          // Day 0: Today is NOT selectable
-                          return (
-                            <div
-                              key={opt.dateStr}
+                    return (
+                      <>
+                        <div style={{ marginBottom: "26px" }}>
+                          <div style={{ marginBottom: "10px" }}>
+                            <label
                               style={{
-                                padding: "14px 10px",
-                                borderRadius: "12px",
-                                background: "#F1F5F9",
-                                border: "1.5px solid #E2E8F0",
-                                textAlign: "center",
-                                opacity: 0.6,
-                                cursor: "not-allowed",
-                                userSelect: "none",
-                              }}
-                              title="Same-day booking unavailable"
-                            >
-                              <div
-                                style={{
-                                  fontSize: "12px",
-                                  fontWeight: 600,
-                                  color: "#64748B",
-                                }}
-                              >
-                                {opt.dayLabel}
-                              </div>
-                              <div
-                                style={{
-                                  fontSize: "15px",
-                                  fontWeight: 800,
-                                  color: "#475569",
-                                  margin: "2px 0 6px 0",
-                                }}
-                              >
-                                {opt.dateDisplay}
-                              </div>
-                              <span
-                                style={{
-                                  fontSize: "10px",
-                                  fontWeight: 700,
-                                  color: "#64748B",
-                                  background: "#E2E8F0",
-                                  padding: "2px 6px",
-                                  borderRadius: "4px",
-                                }}
-                              >
-                                Unavailable
-                              </span>
-                            </div>
-                          );
-                        }
-
-                        // Next 4 days: Clickable chips
-                        return (
-                          <div
-                            key={opt.dateStr}
-                            onClick={() => setPreferredDate(opt.dateStr)}
-                            style={{
-                              padding: "14px 10px",
-                              borderRadius: "12px",
-                              background: isSelected ? "#ECFDF5" : "#FFFFFF",
-                              border: isSelected
-                                ? "2px solid #059669"
-                                : "1.5px solid #CBD5E1",
-                              textAlign: "center",
-                              cursor: "pointer",
-                              transition: "all 0.15s ease",
-                              boxShadow: isSelected
-                                ? "0 4px 12px rgba(5, 150, 105, 0.2)"
-                                : "0 1px 3px rgba(0, 0, 0, 0.02)",
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontSize: "12px",
-                                fontWeight: 700,
-                                color: isSelected ? "#059669" : "#475569",
-                              }}
-                            >
-                              {opt.dayLabel}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: "15px",
+                                display: "block",
+                                fontSize: "14px",
                                 fontWeight: 800,
-                                color: isSelected ? "#065F46" : "#0F172A",
-                                margin: "2px 0 6px 0",
+                                color: "#0F172A",
                               }}
                             >
-                              {opt.dateDisplay}
-                            </div>
-                            <span
-                              style={{
-                                fontSize: "10.5px",
-                                fontWeight: 800,
-                                color: isSelected ? "#059669" : "#0284C7",
-                                background: isSelected ? "#D1FAE5" : "#E0F2FE",
-                                padding: "3px 8px",
-                                borderRadius: "6px",
-                              }}
-                            >
-                              {isSelected ? "✓ Selected" : "Available"}
+                              1. Preferred Appointment Date{" "}
+                              <span style={{ color: "#EF4444" }}>*</span>
+                            </label>
+                            <span style={{ fontSize: "12.5px", color: "#64748B" }}>
+                              Choose Today (when available) or any of the next 4 available days.
                             </span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
 
-                  {/* 2. Preferred Time Slot (30-Minute Box Chips: 08:00 AM - 07:00 PM) */}
-                  <div style={{ marginBottom: "26px" }}>
-                    <div style={{ marginBottom: "10px" }}>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "14px",
-                          fontWeight: 800,
-                          color: "#0F172A",
-                        }}
-                      >
-                        2. Preferred Time Slot{" "}
-                        <span style={{ color: "#EF4444" }}>*</span>
-                      </label>
-                      <span style={{ fontSize: "12.5px", color: "#64748B" }}>
-                        Select a 30-minute appointment slot between 08:00 AM and 07:00 PM.
-                      </span>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns:
-                          "repeat(auto-fill, minmax(110px, 1fr))",
-                        gap: "10px",
-                      }}
-                    >
-                      {TIME_SLOTS.map((slot) => {
-                        const isSelected = preferredTimeSlot === slot;
-                        return (
-                          <button
-                            key={slot}
-                            type="button"
-                            onClick={() => setPreferredTimeSlot(slot)}
+                          <div
                             style={{
-                              padding: "10px 8px",
-                              borderRadius: "10px",
-                              fontSize: "12.5px",
-                              fontWeight: isSelected ? 800 : 600,
-                              cursor: "pointer",
-                              border: isSelected
-                                ? "2px solid #059669"
-                                : "1.5px solid #CBD5E1",
-                              background: isSelected ? "#ECFDF5" : "#FFFFFF",
-                              color: isSelected ? "#065F46" : "#0F172A",
-                              textAlign: "center",
-                              transition: "all 0.12s ease",
-                              boxShadow: isSelected
-                                ? "0 2px 6px rgba(5, 150, 105, 0.15)"
-                                : "none",
+                              display: "grid",
+                              gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+                              gap: "12px",
                             }}
                           >
-                            {slot}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                            {dayOptions.map((opt) => {
+                              const isSelected = preferredDate === opt.dateStr;
+                              const isTodayClosed = opt.isToday && !todaySlotsAvailable;
+
+                              return (
+                                <div
+                                  key={opt.dateStr}
+                                  onClick={() => {
+                                    if (isTodayClosed) {
+                                      addToast({
+                                        title: "Today's Service Unavailable",
+                                        message:
+                                          "Service is unavailable for today. Please select tomorrow's date and time.",
+                                        type: "warning",
+                                      });
+                                      if (preferredDate === opt.dateStr) {
+                                        setPreferredDate("");
+                                        setPreferredTimeSlot("");
+                                      }
+                                      return;
+                                    }
+                                    setPreferredDate(opt.dateStr);
+                                    if (
+                                      opt.isToday &&
+                                      preferredTimeSlot &&
+                                      parseSlotMinutes(preferredTimeSlot) < minTodayMinutes
+                                    ) {
+                                      setPreferredTimeSlot("");
+                                    }
+                                  }}
+                                  style={{
+                                    padding: "14px 10px",
+                                    borderRadius: "12px",
+                                    background: isTodayClosed
+                                      ? "#F8FAFC"
+                                      : isSelected
+                                      ? "#ECFDF5"
+                                      : "#FFFFFF",
+                                    border: isSelected
+                                      ? "2px solid #059669"
+                                      : isTodayClosed
+                                      ? "1.5px solid #E2E8F0"
+                                      : "1.5px solid #CBD5E1",
+                                    textAlign: "center",
+                                    cursor: "pointer",
+                                    opacity: isTodayClosed ? 0.78 : 1,
+                                    transition: "all 0.15s ease",
+                                    boxShadow: isSelected
+                                      ? "0 4px 12px rgba(5, 150, 105, 0.2)"
+                                      : "0 1px 3px rgba(0, 0, 0, 0.02)",
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      fontSize: "12px",
+                                      fontWeight: 700,
+                                      color: isSelected
+                                        ? "#059669"
+                                        : isTodayClosed
+                                        ? "#64748B"
+                                        : "#475569",
+                                    }}
+                                  >
+                                    {opt.dayLabel}
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: "15px",
+                                      fontWeight: 800,
+                                      color: isSelected
+                                        ? "#065F46"
+                                        : isTodayClosed
+                                        ? "#475569"
+                                        : "#0F172A",
+                                      margin: "2px 0 6px 0",
+                                    }}
+                                  >
+                                    {opt.dateDisplay}
+                                  </div>
+                                  <span
+                                    style={{
+                                      fontSize: "10.5px",
+                                      fontWeight: 800,
+                                      color: isTodayClosed
+                                        ? "#B45309"
+                                        : isSelected
+                                        ? "#059669"
+                                        : "#0284C7",
+                                      background: isTodayClosed
+                                        ? "#FEF3C7"
+                                        : isSelected
+                                        ? "#D1FAE5"
+                                        : "#E0F2FE",
+                                      padding: "3px 8px",
+                                      borderRadius: "6px",
+                                    }}
+                                  >
+                                    {isTodayClosed
+                                      ? "Unavailable"
+                                      : isSelected
+                                      ? "✓ Selected"
+                                      : "Available"}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* 2. Preferred Time Slot (30-Minute Box Chips: 08:00 AM - 07:00 PM) */}
+                        <div style={{ marginBottom: "26px" }}>
+                          <div style={{ marginBottom: "10px" }}>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "14px",
+                                fontWeight: 800,
+                                color: "#0F172A",
+                              }}
+                            >
+                              2. Preferred Time Slot{" "}
+                              <span style={{ color: "#EF4444" }}>*</span>
+                            </label>
+                            <span style={{ fontSize: "12.5px", color: "#64748B" }}>
+                              {preferredDate === todayStr
+                                ? "Select an available appointment slot for today."
+                                : "Select a 30-minute appointment slot between 08:00 AM and 07:00 PM."}
+                            </span>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns:
+                                "repeat(auto-fill, minmax(110px, 1fr))",
+                              gap: "10px",
+                            }}
+                          >
+                            {TIME_SLOTS.map((slot) => {
+                              const slotDisabled =
+                                preferredDate === todayStr &&
+                                parseSlotMinutes(slot) < minTodayMinutes;
+                              const isSelected =
+                                !slotDisabled && preferredTimeSlot === slot;
+                              return (
+                                <button
+                                  key={slot}
+                                  type="button"
+                                  aria-disabled={slotDisabled}
+                                  onClick={() => {
+                                    if (slotDisabled) {
+                                      addToast({
+                                        title: "Slot Unavailable",
+                                        message:
+                                          "This time slot is unavailable for today. Please choose an available slot or select tomorrow's date.",
+                                        type: "warning",
+                                      });
+                                      return;
+                                    }
+                                    setPreferredTimeSlot(slot);
+                                  }}
+                                  style={{
+                                    padding: "10px 8px",
+                                    borderRadius: "10px",
+                                    fontSize: "12.5px",
+                                    fontWeight: isSelected ? 800 : 600,
+                                    cursor: slotDisabled
+                                      ? "not-allowed"
+                                      : "pointer",
+                                    opacity: slotDisabled ? 0.45 : 1,
+                                    border: isSelected
+                                      ? "2px solid #059669"
+                                      : "1.5px solid #CBD5E1",
+                                    background: slotDisabled
+                                      ? "#F1F5F9"
+                                      : isSelected
+                                      ? "#ECFDF5"
+                                      : "#FFFFFF",
+                                    color: slotDisabled
+                                      ? "#94A3B8"
+                                      : isSelected
+                                      ? "#065F46"
+                                      : "#0F172A",
+                                    textAlign: "center",
+                                    transition: "all 0.12s ease",
+                                    boxShadow: isSelected
+                                      ? "0 2px 6px rgba(5, 150, 105, 0.15)"
+                                      : "none",
+                                  }}
+                                >
+                                  {slot}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
 
                   {/* 3. Service Priority Level */}
                   <div style={{ marginBottom: "26px" }}>
@@ -2215,7 +2362,27 @@ export default function CustomerNewRequestMarketplace({
                       </label>
 
                       {/* Location Tool Buttons */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingLocation((prev) => !prev)}
+                          style={{
+                            background: isEditingLocation ? "#059669" : "#FFFFFF",
+                            border: "1.5px solid #059669",
+                            color: isEditingLocation ? "#FFFFFF" : "#065F46",
+                            fontSize: "12.5px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            padding: "7px 12px",
+                            borderRadius: "8px",
+                          }}
+                        >
+                          <Edit2 size={13} />
+                          <span>{isEditingLocation ? "Done Editing" : "Edit"}</span>
+                        </button>
                         {/* Use Current Location Button */}
                         <button
                           type="button"
@@ -2266,11 +2433,12 @@ export default function CustomerNewRequestMarketplace({
                       </div>
                     </div>
 
-                    {/* Address Text Field - Address Name ONLY! Coordinates NEVER appear here! */}
+                    {/* Address Text Field - Populated from Profile, editable via Edit / GPS / Map */}
                     <div style={{ position: "relative" }}>
                       <input
                         type="text"
                         required
+                        readOnly={!isEditingLocation}
                         value={locationAddress}
                         onChange={(e) => setLocationAddress(e.target.value)}
                         placeholder="Enter door/building, street address, area and city (e.g. 12, Anna Salai, Chennai)"
@@ -2278,11 +2446,13 @@ export default function CustomerNewRequestMarketplace({
                           width: "100%",
                           padding: "12px 14px 12px 38px",
                           borderRadius: "10px",
-                          border: "1.5px solid #CBD5E1",
+                          border: isEditingLocation ? "1.5px solid #059669" : "1.5px solid #CBD5E1",
+                          background: isEditingLocation ? "#FFFFFF" : "#F8FAFC",
                           fontSize: "13.5px",
                           color: "#0F172A",
                           outline: "none",
                           boxSizing: "border-box",
+                          cursor: isEditingLocation ? "text" : "default",
                         }}
                       />
                       <MapPin
@@ -2317,37 +2487,75 @@ export default function CustomerNewRequestMarketplace({
                     )}
                   </div>
 
-                  {/* 5. Contact Phone Number (From Profile, Editable) */}
+                  {/* 4. Contact Phone Number (From Profile, Editable via Edit button, strictly 10 digits) */}
                   <div style={{ marginBottom: "26px" }}>
-                    <label
+                    <div
                       style={{
-                        display: "block",
-                        fontSize: "14px",
-                        fontWeight: 800,
-                        color: "#0F172A",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        maxWidth: "420px",
                         marginBottom: "8px",
+                        gap: "8px",
                       }}
                     >
-                      4. Contact Phone Number{" "}
-                      <span style={{ color: "#EF4444" }}>*</span>
-                    </label>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "14px",
+                          fontWeight: 800,
+                          color: "#0F172A",
+                        }}
+                      >
+                        4. Contact Phone Number (10 digits){" "}
+                        <span style={{ color: "#EF4444" }}>*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingPhone((prev) => !prev)}
+                        style={{
+                          background: isEditingPhone ? "#059669" : "#FFFFFF",
+                          border: "1.5px solid #059669",
+                          color: isEditingPhone ? "#FFFFFF" : "#065F46",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          padding: "5px 11px",
+                          borderRadius: "8px",
+                        }}
+                      >
+                        <Edit2 size={12} />
+                        <span>{isEditingPhone ? "Done" : "Edit"}</span>
+                      </button>
+                    </div>
                     <div style={{ position: "relative", maxWidth: "420px" }}>
                       <input
                         type="tel"
                         required
+                        readOnly={!isEditingPhone}
                         value={contactNumber}
-                        onChange={(e) => setContactNumber(e.target.value)}
-                        placeholder="e.g. 9876543210"
-                        maxLength={15}
+                        onChange={(e) =>
+                          setContactNumber(
+                            e.target.value.replace(/\D/g, "").slice(0, 10),
+                          )
+                        }
+                        placeholder="10-digit mobile number"
+                        maxLength={10}
+                        inputMode="numeric"
                         style={{
                           width: "100%",
                           padding: "12px 14px 12px 38px",
                           borderRadius: "10px",
-                          border: "1.5px solid #CBD5E1",
+                          border: isEditingPhone ? "1.5px solid #059669" : "1.5px solid #CBD5E1",
+                          background: isEditingPhone ? "#FFFFFF" : "#F8FAFC",
                           fontSize: "13.5px",
                           color: "#0F172A",
                           outline: "none",
                           boxSizing: "border-box",
+                          cursor: isEditingPhone ? "text" : "default",
                         }}
                       />
                       <Phone
@@ -2428,31 +2636,64 @@ export default function CustomerNewRequestMarketplace({
                       <span>Back to Issues</span>
                     </button>
 
-                    <button
-                      type="submit"
-                      disabled={submitting}
-                      style={{
-                        padding: "12px 32px",
-                        borderRadius: "10px",
-                        border: "none",
-                        background: submitting ? "#94A3B8" : "#059669",
-                        color: "#FFFFFF",
-                        fontSize: "14.5px",
-                        fontWeight: 800,
-                        cursor: submitting ? "not-allowed" : "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        boxShadow: "0 3px 8px rgba(5, 150, 105, 0.3)",
-                      }}
-                    >
-                      <Send size={16} />
-                      <span>
-                        {submitting
-                          ? "Submitting..."
-                          : "Submit Service Request ➔"}
-                      </span>
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => {
+                          setPreferredDate("");
+                          setPreferredTimeSlot("");
+                          setAdditionalNotes("");
+                          addToast({
+                            title: "Cleared",
+                            message: "Selected appointment date and time have been cleared.",
+                            type: "info",
+                          });
+                        }}
+                        style={{
+                          padding: "12px 20px",
+                          borderRadius: "10px",
+                          border: "1.5px solid #CBD5E1",
+                          background: "#FFFFFF",
+                          color: "#334155",
+                          fontSize: "14px",
+                          fontWeight: 700,
+                          cursor: submitting ? "not-allowed" : "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                        }}
+                      >
+                        <RotateCcw size={15} />
+                        <span>Clear</span>
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={submitting}
+                        style={{
+                          padding: "12px 32px",
+                          borderRadius: "10px",
+                          border: "none",
+                          background: submitting ? "#94A3B8" : "#059669",
+                          color: "#FFFFFF",
+                          fontSize: "14.5px",
+                          fontWeight: 800,
+                          cursor: submitting ? "not-allowed" : "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          boxShadow: "0 3px 8px rgba(5, 150, 105, 0.3)",
+                        }}
+                      >
+                        <Send size={16} />
+                        <span>
+                          {submitting
+                            ? "Submitting..."
+                            : "Submit Service Request ➔"}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 </form>
             </div>

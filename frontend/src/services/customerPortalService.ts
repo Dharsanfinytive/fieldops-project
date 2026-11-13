@@ -263,9 +263,11 @@ export const updateServiceRequest = (
 
 export const cancelServiceRequest = (
   id: number,
+  reason = "Cancelled by customer",
 ) =>
   api.post(
     `/api/customer/service-requests/${id}/cancel`,
+    { reason },
   );
 
 // Customer Support Requests
