@@ -81,7 +81,7 @@ export default function SentimentIntelligencePage() {
     if (item.source_type === "JOB_FEEDBACK") return "JOB FEEDBACK";
     if (item.source_type === "SUPPORT_CASE") return "SUPPORT REQUEST";
     if (item.source_type === "SUPPORT_CASE_UPDATE") return "SUPPORT REQUEST UPDATE";
-    return item.channel.replaceAll("_", " ");
+    return item.channel.replace(/_/g, " ");
   };
 
   const subjectLabel = (item: SentimentAnalysis) => {
@@ -192,7 +192,7 @@ export default function SentimentIntelligencePage() {
                 <div className="si-content">
                   <div className="si-summary">{item.summary || "No summary provided."}</div>
                   {item.message && <blockquote className="si-quote">“{item.message}”</blockquote>}
-                  <div className="si-issues"><strong>Issues:</strong> {item.issue_categories?.length ? item.issue_categories.map((label) => label.replaceAll("_", " ").toLowerCase()).join(", ") : "None identified"}</div>
+                  <div className="si-issues"><strong>Issues:</strong> {item.issue_categories?.length ? item.issue_categories.map((label) => label.replace(/_/g, " ").toLowerCase()).join(", ") : "None identified"}</div>
                 </div>
                 <aside className="si-action">
                   <div className="si-action-label">Suggested staff action</div>
@@ -212,8 +212,8 @@ export default function SentimentIntelligencePage() {
       <section className="si-panel si-escalations">
         <div className="si-panel-head"><h2 className="si-panel-title">Open sentiment escalations</h2></div>
         {alerts.length === 0 ? <p className="si-state">No open sentiment escalations.</p> : alerts.map((alert) => <div className="si-escalation-row" key={alert.escalation_id}>
-          <div><strong>{alert.customer_name}</strong><span style={{ color: "#63748b" }}> · {alert.job_id ? `Job #${alert.job_id}` : "Customer support conversation"}</span><div style={{ marginTop: 5, color: "#63748b", fontSize: 13 }}>{alert.trigger_reason.replaceAll("_", " ").toLowerCase()} · {new Date(alert.created_at).toLocaleString()}</div>{alert.suggested_action && <div style={{ marginTop: 8, color: "#334155", fontSize: 13 }}>Suggested action: {alert.suggested_action}</div>}</div>
-          <div style={{ textAlign: "right" }}><strong style={{ color: alert.sla_breach ? "#B91C1C" : "#92400E" }}>{alert.sla_breach ? alert.sla_breach.replaceAll("_", " ") : alert.status}</strong><div style={{ color: "#63748b", fontSize: 12, marginTop: 4 }}>{alert.sentiment_label}</div></div>
+          <div><strong>{alert.customer_name}</strong><span style={{ color: "#63748b" }}> · {alert.job_id ? `Job #${alert.job_id}` : "Customer support conversation"}</span><div style={{ marginTop: 5, color: "#63748b", fontSize: 13 }}>{alert.trigger_reason.replace(/_/g, " ").toLowerCase()} · {new Date(alert.created_at).toLocaleString()}</div>{alert.suggested_action && <div style={{ marginTop: 8, color: "#334155", fontSize: 13 }}>Suggested action: {alert.suggested_action}</div>}</div>
+          <div style={{ textAlign: "right" }}><strong style={{ color: alert.sla_breach ? "#B91C1C" : "#92400E" }}>{alert.sla_breach ? alert.sla_breach.replace(/_/g, " ") : alert.status}</strong><div style={{ color: "#63748b", fontSize: 12, marginTop: 4 }}>{alert.sentiment_label}</div></div>
         </div>)}
       </section>
       <p className="si-disclaimer">AI suggestions support staff review. They do not change job or support request status.</p>

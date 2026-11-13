@@ -176,7 +176,7 @@ export default function TechnicianJobHistoryPage() {
         <div style={{ textAlign: "center", padding: 56, color: "#71819A", background: "white", borderRadius: 14, border: "1px solid #E5EBF3" }}>{jobs.length ? "No jobs match these filters." : "No job history yet."}</div>
       ) : filteredJobs.map((job) => {
         const isRejected = isRejectedJob(job);
-        const status = isRejected ? "REJECTED" : String(job.status || "COMPLETED").replaceAll("_", " ").toUpperCase();
+        const status = isRejected ? "REJECTED" : String(job.status || "COMPLETED").replace(/_/g, " ").toUpperCase();
         const eventDate = isRejected ? job.rejected_at : job.completed_at;
         const danger = isRejected || status === "CANCELLED";
         const expanded = expandedJobId === job.id;

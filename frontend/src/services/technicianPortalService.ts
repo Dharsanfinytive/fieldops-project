@@ -51,6 +51,26 @@ export const createTechnicianProfile = (data: any) =>
 export const updateTechnicianProfile = (data: any) =>
   api.put("/api/technician/profile", data);
 
+export interface TechnicianReverseLocationResponse {
+  verified?: boolean;
+  address?: string;
+  formatted_address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
+
+export const reverseTechnicianLocation = (
+  latitude: number,
+  longitude: number,
+) =>
+  api.get<TechnicianReverseLocationResponse>(
+    "/organizations/reverse-location",
+    {
+      params: { latitude, longitude },
+    },
+  );
+
 export const changeTechnicianPassword = (data: any) =>
   api.post("/api/technician/change-password", data);
 

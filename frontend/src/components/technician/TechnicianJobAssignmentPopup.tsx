@@ -42,29 +42,75 @@ interface TechnicianJobAssignmentPopupProps {
   onCancelReject?: () => void;
 }
 
-const formatTime = (timeStr?: string | null): string => {
-  if (!timeStr) return "";
-  const trimmed = String(timeStr).trim();
-  if (/am|pm/i.test(trimmed)) return trimmed;
-  const parts = trimmed.split(":");
-  if (parts.length >= 2) {
-    const hours = parseInt(parts[0], 10);
-    const minutes = parts[1];
-    if (!isNaN(hours)) {
-      const ampm = hours >= 12 ? "PM" : "AM";
-      const h12 = hours % 12 || 12;
-      return `${String(h12).padStart(2, "0")}:${minutes} ${ampm}`;
-    }
+const formatDateIndian = (dateStr?: string | null): string => {
+  if (!dateStr) return "N/A";
+
+  const value = String(dateStr).trim();
+
+  // ISO date: YYYY-MM-DD
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
   }
-  return trimmed;
+
+  // Already Indian date: DD/MM/YYYY
+  const indianMatch = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+
+  if (indianMatch) {
+    return value;
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  }).format(parsed);
 };
 
-const formatSchedule = (job: TechnicianJob): string => {
-  const date = job.preferred_service_date;
-  const rawTime = job.preferred_service_time || job.preferred_visit_time;
-  const time = formatTime(rawTime);
-  if (date && time) return `${date} at ${time}`;
-  return date || time || "N/A";
+const formatTime = (timeStr?: string | null): string => {
+  if (!timeStr) return "N/A";
+
+  const value = String(timeStr).trim();
+
+  // Already in 12-hour format.
+  const ampmMatch = value.match(
+    /^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i
+  );
+
+  if (ampmMatch) {
+    const hours = Number(ampmMatch[1]);
+
+    if (hours >= 1 && hours <= 12) {
+      return `${String(hours).padStart(2, "0")}:${ampmMatch[2]} ${ampmMatch[3].toUpperCase()}`;
+    }
+  }
+
+  // Convert 24-hour format to 12-hour format.
+  const timeMatch = value.match(
+    /^(\d{1,2}):(\d{2})(?::\d{2})?$/
+  );
+
+  if (timeMatch) {
+    const hours = Number(timeMatch[1]);
+    const minutes = timeMatch[2];
+
+    if (hours >= 0 && hours <= 23) {
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const hours12 = hours % 12 || 12;
+
+      return `${String(hours12).padStart(2, "0")}:${minutes} ${ampm}`;
+    }
+  }
+
+  return value;
 };
 
 const getPriorityTheme = (p?: string | null) => {
@@ -245,148 +291,189 @@ export default function TechnicianJobAssignmentPopup({
         </section>
 
         <section className="technician-job-assignment-columns">
-          <div className="technician-job-assignment-customer-stack">
-            <article className="technician-job-assignment-info-card">
-              <span className="technician-job-assignment-info-icon">
-                <User size={17} />
-              </span>
-              <div className="technician-job-assignment-info-content">
-                <span className="technician-job-assignment-eyebrow">
-                  CUSTOMER
+
+          {/* LEFT: CUSTOMER DETAILS */}
+          <article className="technician-job-assignment-panel">
+
+            <div className="technician-job-assignment-panel-heading is-customer">
+              <User size={22} />
+              <h4>Customer Details</h4>
+            </div>
+
+            <div className="technician-job-assignment-panel-body">
+
+              {/* Customer Name */}
+              <div className="technician-job-assignment-detail-row">
+                <span className="technician-job-assignment-info-icon is-green">
+                  <User size={19} />
                 </span>
-                <div className="technician-job-assignment-info-value">
-                  {job.customer_name || "N/A"}
+
+                <div className="technician-job-assignment-info-content">
+                  <span className="technician-job-assignment-eyebrow">
+                    NAME
+                  </span>
+
+                  <div className="technician-job-assignment-info-value">
+                    {job.customer_name || "N/A"}
+                  </div>
                 </div>
               </div>
-            </article>
-            <article className="technician-job-assignment-info-card">
-              <span className="technician-job-assignment-info-icon is-blue">
-                <Phone size={16} />
-              </span>
-              <div className="technician-job-assignment-info-content">
-                <span className="technician-job-assignment-eyebrow">
-                  CONTACT
+
+              {/* Contact */}
+              <div className="technician-job-assignment-detail-row">
+                <span className="technician-job-assignment-info-icon is-blue">
+                  <Phone size={19} />
                 </span>
-                <div className="technician-job-assignment-info-value">
-                  {job.contact_number || "N/A"}
+
+                <div className="technician-job-assignment-info-content">
+                  <span className="technician-job-assignment-eyebrow">
+                    CONTACT
+                  </span>
+
+                  <div className="technician-job-assignment-info-value">
+                    {job.contact_number || "N/A"}
+                  </div>
                 </div>
               </div>
-            </article>
-            <article className="technician-job-assignment-info-card">
-              <span className="technician-job-assignment-info-icon">
-                <CalendarDays size={16} />
-              </span>
-              <div className="technician-job-assignment-info-content">
-                <span className="technician-job-assignment-eyebrow">
-                  APPOINTMENT DATE
+
+              {/* Location */}
+              <div className="technician-job-assignment-detail-row is-location">
+                <span className="technician-job-assignment-info-icon is-green">
+                  <MapPin size={19} />
                 </span>
-                <div className="technician-job-assignment-info-value">
-                  {job.preferred_service_date || "Today"}
+
+                <div className="technician-job-assignment-info-content">
+                  <span className="technician-job-assignment-eyebrow">
+                    LOCATION
+                  </span>
+
+                  <div className="technician-job-assignment-info-value">
+                    {job.site_address || job.location || "N/A"}
+                  </div>
                 </div>
               </div>
-            </article>
-            <article className="technician-job-assignment-info-card" style={{ border: "1.5px solid #93C5FD", background: "#F0F9FF" }}>
-              <span className="technician-job-assignment-info-icon is-blue" style={{ background: "#DBEAFE", color: "#1D4ED8" }}>
-                <Clock size={16} />
-              </span>
-              <div className="technician-job-assignment-info-content">
-                <span className="technician-job-assignment-eyebrow" style={{ color: "#1E40AF", fontWeight: 700 }}>
-                  PREFERRED TIME
-                </span>
-                <div className="technician-job-assignment-info-value" style={{ fontWeight: 800, color: "#1E3A8A", fontSize: "14px" }}>
-                  {formatTime(job.preferred_service_time || job.preferred_visit_time) || "09:00 AM"}
-                </div>
-              </div>
-            </article>
-            <article className="technician-job-assignment-info-card" style={{ border: `1.5px solid ${priorityTheme.border}`, background: priorityTheme.bg }}>
-              <span className="technician-job-assignment-info-icon" style={{ background: priorityTheme.iconBg, color: priorityTheme.color }}>
-                <AlertTriangle size={16} />
-              </span>
-              <div className="technician-job-assignment-info-content">
-                <span className="technician-job-assignment-eyebrow" style={{ color: priorityTheme.color, fontWeight: 700 }}>
-                  JOB PRIORITY
-                </span>
-                <div className="technician-job-assignment-info-value" style={{ fontWeight: 800, color: priorityTheme.color, fontSize: "14px" }}>
-                  {job.priority ? job.priority.toUpperCase() : "MEDIUM"}
-                </div>
-              </div>
-            </article>
-          </div>
-          <article className="technician-job-assignment-info-card technician-job-assignment-location-card">
-            <span className="technician-job-assignment-info-icon is-green">
-              <MapPin size={17} />
-            </span>
-            <div className="technician-job-assignment-info-content">
-              <span className="technician-job-assignment-eyebrow">
-                LOCATION
-              </span>
-              <div className="technician-job-assignment-info-value">
-                {job.site_address || job.location || "N/A"}
-              </div>
+
             </div>
           </article>
-        </section>
 
-        <section
-          className="technician-job-assignment-distance"
-          aria-live="polite"
-        >
-          <div className="technician-job-assignment-distance-label">
-            <span className="technician-job-assignment-icon">
-              <Navigation size={18} />
-            </span>
-            <span>Current location to customer</span>
-          </div>
-          <strong
-            className="technician-job-assignment-distance-value"
-            data-testid="assignment-distance-summary"
-          >
-            {distanceDisplay}
-          </strong>
-        </section>
+          {/* RIGHT: SERVICE DETAILS */}
+          <article className="technician-job-assignment-panel">
 
-        <section className="technician-job-assignment-service">
-          <div className="technician-job-assignment-service-heading">
-            <span className="technician-job-assignment-info-icon">
-              <Wrench size={17} />
-            </span>
-            <div>
-              <span className="technician-job-assignment-eyebrow">
-                SERVICE TYPE
-              </span>
-              <div className="technician-job-assignment-service-name">
-                {job.service_type || "Service Request"}
-              </div>
+            <div className="technician-job-assignment-panel-heading is-service">
+              <Wrench size={22} />
+              <h4>Service Details</h4>
             </div>
-          </div>
-          {/* Prominent Appointment Date & Time Banner */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              background: "#F0FDF4",
-              border: "1.5px solid #BBF7D0",
-              borderRadius: "10px",
-              padding: "10px 14px",
-              margin: "12px 0",
-              fontSize: "13px",
-              color: "#166534",
-            }}
-          >
-            <Clock size={16} color="#16A34A" />
-            <span>
-              Appointment Time:{" "}
-              <strong style={{ color: "#15803D", fontSize: "14px" }}>
-                {formatTime(job.preferred_service_time || job.preferred_visit_time) || "09:00 AM"}
-              </strong>
-              {job.preferred_service_date ? ` on ${job.preferred_service_date}` : ""}
-            </span>
-          </div>
-          <p className="technician-job-assignment-service-description">
-            {job.issue_description ||
-              "No additional service details provided."}
-          </p>
+
+            <div className="technician-job-assignment-panel-body">
+
+              {/* Service Type */}
+              <div className="technician-job-assignment-detail-row">
+                <span className="technician-job-assignment-info-icon is-blue">
+                  <Wrench size={19} />
+                </span>
+
+                <div className="technician-job-assignment-info-content">
+                  <span className="technician-job-assignment-eyebrow">
+                    SERVICE TYPE
+                  </span>
+
+                  <div className="technician-job-assignment-info-value">
+                    {job.service_type || "Service Request"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Job Title / Issue */}
+              <div className="technician-job-assignment-detail-row">
+                <span className="technician-job-assignment-info-icon is-blue">
+                  <AlertTriangle size={19} />
+                </span>
+
+                <div className="technician-job-assignment-info-content">
+                  <span className="technician-job-assignment-eyebrow">
+                    TITLE / ISSUE
+                  </span>
+
+                  <div className="technician-job-assignment-info-value">
+                    {job.issue_description || "No additional service details provided."}
+                  </div>
+                </div>
+              </div>
+
+              {/* Appointment Date and Time */}
+              <div className="technician-job-assignment-date-time">
+
+                <div className="technician-job-assignment-date-time-item">
+                  <span className="technician-job-assignment-info-icon">
+                    <CalendarDays size={19} />
+                  </span>
+
+                  <div className="technician-job-assignment-info-content">
+                    <span className="technician-job-assignment-eyebrow">
+                      APPOINTMENT DATE
+                    </span>
+
+                    <div className="technician-job-assignment-info-value">
+                      {formatDateIndian(job.preferred_service_date)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="technician-job-assignment-date-time-item">
+                  <span className="technician-job-assignment-info-icon is-blue">
+                    <Clock size={19} />
+                  </span>
+
+                  <div className="technician-job-assignment-info-content">
+                    <span className="technician-job-assignment-eyebrow">
+                      PREFERRED TIME
+                    </span>
+
+                    <div className="technician-job-assignment-info-value">
+                      {formatTime(
+                        job.preferred_service_time || job.preferred_visit_time
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Priority */}
+              <div
+                className="technician-job-assignment-priority"
+                style={{
+                  borderColor: priorityTheme.border,
+                  background: priorityTheme.bg,
+                  color: priorityTheme.color,
+                }}
+              >
+                <span
+                  className="technician-job-assignment-info-icon"
+                  style={{
+                    background: priorityTheme.iconBg,
+                    color: priorityTheme.color,
+                  }}
+                >
+                  <AlertTriangle size={19} />
+                </span>
+
+                <div className="technician-job-assignment-info-content">
+                  <span className="technician-job-assignment-eyebrow">
+                    JOB PRIORITY
+                  </span>
+
+                  <div className="technician-job-assignment-info-value">
+                    {job.priority
+                      ? job.priority.toUpperCase()
+                      : "MEDIUM"}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </article>
+
         </section>
           </>
         )}

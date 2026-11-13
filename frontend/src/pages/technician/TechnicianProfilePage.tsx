@@ -12,10 +12,12 @@ import {
   CheckCircle,
   Mail,
   MapPin,
+  Navigation,
   Pencil,
   Phone,
   Wrench,
   ArrowLeft,
+  X,
 } from "lucide-react";
 import {
   getTechnicianProfile,
@@ -23,9 +25,11 @@ import {
   getTechnicianDashboard,
   createTechnicianProfile,
   updateTechnicianProfile,
+  reverseTechnicianLocation,
 } from "../../services/technicianPortalService";
 import useAuthStore from "../../store/authStore";
 import { SkillComboSelect } from "../../components/ui/SkillComboSelect";
+import LocationPickerMap from "../../components/customer-tracking/LocationPickerMap";
 
 type TechnicianProfileForm = {
   full_name: string;
@@ -226,6 +230,19 @@ export default function TechnicianProfilePage({
   const [isNew, setIsNew] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
+
+  const [tempCoords, setTempCoords] = useState<{
+    lat: number;
+    lng: number;
+  }>({
+    lat: 13.0827,
+    lng: 80.2707,
+  });
+
+  const [tempAddress, setTempAddress] = useState("");
+
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -395,6 +412,112 @@ export default function TechnicianProfilePage({
 
   const upd = (key: string, val: string) =>
     setForm((f) => ({ ...f, [key]: val }));
+
+  // Detect the technician's current location and retrieve its address.
+  const handleUseCurrentLocation = () => {
+    if (saving || locating) return;
+
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    setLocating(true);
+    setError("");
+
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        try {
+          const response = await reverseTechnicianLocation(
+            coords.latitude,
+            coords.longitude,
+          );
+
+          const location = response?.data;
+
+          const address = location?.verified
+            ? location.address || location.formatted_address || ""
+            : "";
+
+          const detectedPincode =
+            location?.pincode ||
+            address.match(/\b\d{6}\b/)?.[0] ||
+            "";
+
+          setForm((previous) => ({
+            ...previous,
+            address: address || previous.address,
+            city: location?.city || previous.city,
+            state: location?.state || previous.state,
+            pincode: detectedPincode || previous.pincode,
+          }));
+        } catch {
+          setError(
+            "Unable to detect your address. Please pick it on the map or enter it manually.",
+          );
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        setError("Location permission denied or timed out.");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+      },
+    );
+  };
+
+  // Resolve the location selected on the map and fill all address fields.
+  const handleConfirmMapLocation = async () => {
+    if (saving) return;
+
+    try {
+      const response = await reverseTechnicianLocation(
+        tempCoords.lat,
+        tempCoords.lng,
+      );
+
+      const location = response?.data;
+
+      const address =
+        tempAddress ||
+        location?.address ||
+        location?.formatted_address ||
+        "";
+
+      const detectedPincode =
+        location?.pincode ||
+        address.match(/\b\d{6}\b/)?.[0] ||
+        "";
+
+      setForm((previous) => ({
+        ...previous,
+        address: address || previous.address,
+        city: location?.city || previous.city,
+        state: location?.state || previous.state,
+        pincode: detectedPincode || previous.pincode,
+      }));
+
+      setError("");
+      setShowMapModal(false);
+    } catch {
+      if (tempAddress) {
+        setForm((previous) => ({
+          ...previous,
+          address: tempAddress,
+        }));
+
+        setShowMapModal(false);
+      } else {
+        setError(
+          "Unable to retrieve this location. Please choose another point on the map.",
+        );
+      }
+    }
+  };
 
   if (loading)
     return (
@@ -677,7 +800,9 @@ export default function TechnicianProfilePage({
                             <span style={{ display: "block", color: "#71819A", fontSize: 12, marginTop: 5, overflowWrap: "anywhere" }}>{job.location || job.site_address || job.customer_name || "Location not provided"}</span>
                           </div>
                           <div style={{ flexShrink: 0, textAlign: "right" }}>
-                            <span style={{ display: "block", color: "#52627E", fontSize: 12 }}>{String(job.status || "Completed").replaceAll("_", " ")}</span>
+                            <span style={{ display: "block", color: "#52627E", fontSize: 12 }}>
+                              {String(job.status || "Completed").replace(/_/g, " ")}
+                            </span>                           
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "#71819A", fontSize: 11, marginTop: 5 }}>
                               <Clock3 size={12} /> {formatJobDate(job.rejected_at || job.completed_at)}
                             </span>
@@ -799,13 +924,101 @@ export default function TechnicianProfilePage({
             <div style={s.section}>Address</div>
           </div>
           <div style={s.fullWidth}>
-            <label style={s.label}>Address</label>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+                marginBottom: "7px",
+              }}
+            >
+              <label style={{ ...s.label, marginBottom: 0 }}>
+                Address
+              </label>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={handleUseCurrentLocation}
+                  disabled={locating || saving}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    padding: "6px 9px",
+                    border: "1px solid #A7F3D0",
+                    borderRadius: "7px",
+                    background: "#ECFDF5",
+                    color: "#047857",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: locating || saving ? "not-allowed" : "pointer",
+                    opacity: locating || saving ? 0.65 : 1,
+                  }}
+                >
+                  <Navigation size={13} />
+                  {locating ? "Detecting..." : "Use Current Location"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempAddress(form.address || "");
+                    setTempCoords({
+                      lat: 13.0827,
+                      lng: 80.2707,
+                    });
+                    setShowMapModal(true);
+                  }}
+                  disabled={saving}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    padding: "6px 9px",
+                    border: "1px solid #BFDBFE",
+                    borderRadius: "7px",
+                    background: "#EFF6FF",
+                    color: "#2563EB",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: saving ? "not-allowed" : "pointer",
+                    opacity: saving ? 0.65 : 1,
+                  }}
+                >
+                  <MapPin size={13} />
+                  Pick on Map
+                </button>
+              </div>
+            </div>
+
             <textarea
               style={s.textarea as any}
               value={form.address}
               onChange={(e) => upd("address", e.target.value)}
-              placeholder="Street address"
+              placeholder="Select a location on the map or enter your street address"
+              disabled={saving}
             />
+
+            <p
+              style={{
+                margin: "5px 0 0",
+                color: "#718096",
+                fontSize: "11px",
+              }}
+            >
+              Selecting a map location automatically fills City, State and
+              Pincode. You can still edit these fields manually.
+            </p>
           </div>
           <div>
             <label style={s.label}>City</label>
@@ -905,6 +1118,208 @@ export default function TechnicianProfilePage({
           </button>
         </div>
       </div>
+
+      {/* Technician address location picker */}
+      {showMapModal && (
+        <div
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowMapModal(false);
+            }
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1500,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "16px",
+            boxSizing: "border-box",
+            background: "rgba(15, 23, 42, 0.65)",
+            backdropFilter: "blur(5px)",
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="technician-location-picker-title"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: "680px",
+              maxHeight: "92vh",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              borderRadius: "18px",
+              background: "#FFFFFF",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.3)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+                padding: "16px 20px",
+                borderBottom: "1px solid #E2E8F0",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "9px",
+                }}
+              >
+                <MapPin size={20} color="#078A8A" />
+
+                <h3
+                  id="technician-location-picker-title"
+                  style={{
+                    margin: 0,
+                    color: "#0F172A",
+                    fontSize: "16px",
+                    fontWeight: 800,
+                  }}
+                >
+                  Pick Your Address on Map
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowMapModal(false)}
+                aria-label="Close map"
+                style={{
+                  display: "grid",
+                  width: "34px",
+                  height: "34px",
+                  placeItems: "center",
+                  border: 0,
+                  borderRadius: "8px",
+                  background: "#F1F5F9",
+                  color: "#64748B",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: "16px", overflowY: "auto" }}>
+              <LocationPickerMap
+                latitude={tempCoords.lat}
+                longitude={tempCoords.lng}
+                onChange={(latitude, longitude, address) => {
+                  setTempCoords({
+                    lat: latitude,
+                    lng: longitude,
+                  });
+
+                  if (address?.trim()) {
+                    setTempAddress(address.trim());
+                    return;
+                  }
+
+                  void reverseTechnicianLocation(latitude, longitude)
+                    .then((response) => {
+                      const location = response?.data;
+
+                      const resolvedAddress = location?.verified
+                        ? location.address || location.formatted_address || ""
+                        : "";
+
+                      if (resolvedAddress) {
+                        setTempAddress(resolvedAddress);
+                      }
+                    })
+                    .catch(() => {
+                      // Keep the selected coordinates available for confirmation.
+                    });
+                }}
+              />
+
+              {tempAddress && (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "10px 13px",
+                    border: "1px solid #DCE8E2",
+                    borderRadius: "9px",
+                    background: "#F8FAFC",
+                    color: "#334155",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <MapPin
+                    size={14}
+                    style={{
+                      display: "inline",
+                      verticalAlign: "middle",
+                      marginRight: "5px",
+                    }}
+                  />
+                  {tempAddress}
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "10px",
+                  marginTop: "16px",
+                  paddingTop: "14px",
+                  borderTop: "1px solid #E2E8F0",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowMapModal(false)}
+                  style={{
+                    padding: "9px 17px",
+                    border: "1px solid #CBD5E1",
+                    borderRadius: "9px",
+                    background: "#FFFFFF",
+                    color: "#475569",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmMapLocation}
+                  disabled={saving}
+                  style={{
+                    padding: "9px 18px",
+                    border: 0,
+                    borderRadius: "9px",
+                    background: "#078A63",
+                    color: "#FFFFFF",
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    cursor: saving ? "not-allowed" : "pointer",
+                    opacity: saving ? 0.65 : 1,
+                  }}
+                >
+                  Confirm Location
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

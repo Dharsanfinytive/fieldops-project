@@ -32,6 +32,7 @@ export interface JobData {
   customer: string;
   location: string;
   status: string;
+  fallback?: boolean;
   sla_deadline?: string | null;
   latitude: number;
   longitude: number;

@@ -69,7 +69,7 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
   const [error, setError] = useState("");
 
   const [form, setForm] = useState({
-    full_name: "Lincy K",
+    full_name: "",
     mobile_number: "1234567098",
     address: "Tamilnadu",
     city: "Pudukkottai",
@@ -78,7 +78,7 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
   });
 
   const [editForm, setEditForm] = useState({
-    full_name: "Lincy K",
+    full_name: "",
     mobile_number: "1234567098",
     address: "Tamilnadu",
     city: "Pudukkottai",
@@ -94,9 +94,7 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
         const loadedData = {
           full_name:
             profile.full_name ||
-            (user?.first_name && user.first_name.toLowerCase() !== "carl"
-              ? `${user.first_name} ${user.last_name || ""}`.trim()
-              : "Lincy K"),
+            `${user?.first_name || ""} ${user?.last_name || ""}`.trim(),
           mobile_number: profile.mobile_number || "1234567098",
           address: profile.address || "Tamilnadu",
           city: profile.city || "Pudukkottai",
@@ -112,9 +110,7 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
       setIsNew(true);
       const defaultData = {
         full_name:
-          user?.first_name && user.first_name.toLowerCase() !== "carl"
-            ? `${user.first_name} ${user.last_name || ""}`.trim()
-            : "Lincy K",
+          `${user?.first_name || ""} ${user?.last_name || ""}`.trim(),
         mobile_number: "1234567098",
         address: "Tamilnadu",
         city: "Pudukkottai",
@@ -549,7 +545,7 @@ export default function CustomerProfilePage({ onClose, onNavigate }: CustomerPro
               margin: "0 0 6px",
             }}
           >
-            {form.full_name || "Lincy K"}
+            {form.full_name || "Customer"}
           </h2>
 
           {/* Customer Badge */}

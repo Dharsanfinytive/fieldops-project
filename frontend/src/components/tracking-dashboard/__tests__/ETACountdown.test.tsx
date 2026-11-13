@@ -19,9 +19,6 @@ describe('ETACountdown Component', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    if (typeof window !== 'undefined') {
-      global.localStorage = window.localStorage;
-    }
   });
 
   afterEach(() => {

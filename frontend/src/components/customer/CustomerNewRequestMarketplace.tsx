@@ -451,7 +451,7 @@ export default function CustomerNewRequestMarketplace({
     return catalogItems.some((item) => {
       const itemType = normalize(item.service_type);
       const itemCat = normalize(item.category);
-      const itemIssue = normalize(item.issue || item.title || item.name);
+      const itemIssue = normalize(item.issue || item.category || item.service_type);
 
       const matchesType = !itemType || itemType === normType;
       const matchesCat = !itemCat || itemCat === normCat;

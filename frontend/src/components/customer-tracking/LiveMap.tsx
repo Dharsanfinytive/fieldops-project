@@ -27,7 +27,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { useNotificationStore } from '../../store/notificationStore';
 import { Compass, Maximize, Radio, Loader2, Moon, Sun } from 'lucide-react';
 
-const libraries: ('places' | 'drawing' | 'geometry' | 'localContext' | 'visualization')[] = ['geometry'];
+const libraries: ('places' | 'drawing' | 'geometry' | 'visualization')[] = ['geometry'];
 
 const mapContainerStyle = {
   width: '100%',

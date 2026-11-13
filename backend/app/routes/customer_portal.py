@@ -543,11 +543,74 @@ async def update_customer_profile(
         exclude_unset=True
     )
 
+    if "full_name" in update_data and update_data["full_name"] is not None:
+        customer_name = update_data["full_name"].strip()
+
+        if not customer_name:
+            raise HTTPException(
+                status_code=422,
+                detail="Customer name cannot be empty.",
+            )
+
+        update_data["full_name"] = customer_name
+
     for key, value in update_data.items():
         if value is not None:
             setattr(profile, key, value)
 
     profile.profile_completed = True
+
+    # Synchronize customer identity across FieldOps.
+    if "full_name" in update_data:
+        customer_name = profile.full_name.strip()
+
+        # Update the main customer User record.
+        customer_user = db.query(User).filter(
+            User.id == current_user.user_id,
+            User.tenant_id == current_user.tenant_id,
+        ).first()
+
+        if customer_user:
+            name_parts = customer_name.split(maxsplit=1)
+
+            customer_user.first_name = name_parts[0]
+            customer_user.last_name = (
+                name_parts[1] if len(name_parts) > 1 else ""
+            )
+
+        # Match historical jobs through their customer-owned
+        # ServiceRequest relationships.
+        customer_linked_job_ids = select(
+            ServiceRequest.linked_job_id
+        ).where(
+            ServiceRequest.customer_user_id == current_user.user_id,
+            ServiceRequest.tenant_id == current_user.tenant_id,
+            ServiceRequest.linked_job_id.isnot(None),
+        )
+
+        # Also include legacy jobs without a linked ServiceRequest.
+        legacy_owned_jobs = (
+            (Job.customer_id == str(current_user.user_id))
+            & (
+                (Job.customer_tenant_id == current_user.tenant_id)
+                | (
+                    Job.customer_tenant_id.is_(None)
+                    & (Job.tenant_id == current_user.tenant_id)
+                )
+            )
+        )
+
+        db.query(Job).filter(
+            or_(
+                Job.id.in_(customer_linked_job_ids),
+                legacy_owned_jobs,
+            )
+        ).update(
+            {
+                Job.customer_name: customer_name,
+            },
+            synchronize_session=False,
+        )
 
     audit_log(
         db,

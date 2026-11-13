@@ -43,7 +43,7 @@ import MapControls from '../components/customer-tracking/MapControls';
 import { Toaster } from 'react-hot-toast';
 import { Radio, Users, MapPin } from 'lucide-react';
 
-const libraries: ('places' | 'drawing' | 'geometry' | 'localContext' | 'visualization')[] = ['geometry'];
+const libraries: ('places' | 'drawing' | 'geometry' | 'visualization')[] = ['geometry'];
 
 const mapContainerStyle = {
   width: '100%',

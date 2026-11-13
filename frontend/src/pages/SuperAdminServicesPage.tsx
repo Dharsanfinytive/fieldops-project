@@ -688,7 +688,7 @@ export default function SuperAdminServicesPage({ readOnly = false }: SuperAdminS
       {/* 4. MAIN CONTENT AREA: ONLY GROUPED VIEW (Matching user screenshot media_1792732211767_9dcabde7.png) */}
       {loading ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "60px 0" }}>
-          <LoadingSpinner size="md" />
+          <LoadingSpinner />
         </div>
       ) : filteredServices.length === 0 ? (
         <div

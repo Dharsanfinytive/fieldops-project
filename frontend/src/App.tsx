@@ -19,7 +19,6 @@ import {
   Headphones,
   Bell,
   ChevronDown,
-  Menu,
   MapPin,
   Wrench,
   Workflow,
@@ -526,6 +525,49 @@ const localCss = `
     display: none !important;
   }
 
+  /* Technician sidebar — customer portal visual style */
+  .technician-sidebar-style {
+    background: #FFFFFF !important;
+    border-right: 1px solid #E2E8F0 !important;
+  }
+
+  .technician-sidebar-style .sidebar-content-style {
+    padding: 12px 10px !important;
+  }
+
+  .technician-sidebar-style.is-collapsed .sidebar-content-style {
+    padding: 12px 6px !important;
+  }
+
+  .technician-sidebar-style .nav-item-style {
+    min-height: 42px !important;
+    padding: 10px 10px 10px 8px !important;
+    border-radius: 10px !important;
+    font-size: 14px !important;
+    font-family: 'Inter', sans-serif !important;
+    box-sizing: border-box !important;
+  }
+
+  .technician-sidebar-style .nav-item-style:hover {
+    background: #DDEEE5 !important;
+    color: #2F4F3E !important;
+  }
+
+  .technician-sidebar-style.is-collapsed .nav-item-style {
+    min-height: 42px !important;
+    padding: 10px 0 !important;
+    justify-content: center !important;
+  }
+
+  .technician-sidebar-style .nav-text {
+    font-weight: 500;
+  }
+
+  .technician-sidebar-style button:focus-visible {
+    outline: 2px solid #168653;
+    outline-offset: 2px;
+  }
+
 `;
 
 type DashboardDateRange = {
@@ -688,12 +730,9 @@ function AppInner() {
   const [customerLocation, setCustomerLocation] =
     useState("Chennai, Tamil Nadu");
 
-  const [customerName, setCustomerName] = useState(() => {
-    if (user?.first_name && user.first_name.toLowerCase() !== "carl") {
-      return `${user.first_name} ${user.last_name || ""}`.trim();
-    }
-    return "lincy";
-  });
+  const [customerName, setCustomerName] = useState(() =>
+    `${user?.first_name || ""} ${user?.last_name || ""}`.trim()
+  );
 
   useEffect(() => {
     if (!isCustomer) return;
@@ -709,15 +748,12 @@ function AppInner() {
         setCustomerLocation(profile.address);
       }
 
-      if (profile.full_name && profile.full_name.trim()) {
-        const cleaned = profile.full_name.trim();
-        if (cleaned.toLowerCase() !== "carl customer" && cleaned.toLowerCase() !== "carl") {
-          setCustomerName(cleaned);
-        } else {
-          setCustomerName("lincy");
-        }
-      } else if (user?.first_name && user.first_name.toLowerCase() !== "carl") {
-        setCustomerName(`${user.first_name} ${user.last_name || ""}`.trim());
+      const updatedName =
+        profile.full_name?.trim() ||
+        `${user?.first_name || ""} ${user?.last_name || ""}`.trim();
+
+      if (updatedName) {
+        setCustomerName(updatedName);
       }
     };
 
@@ -1951,6 +1987,13 @@ function AppInner() {
         }
       >
         <aside
+          className={
+            isTechnicianShell && !isMobileLayout
+              ? sidebarCollapsed
+                ? "technician-sidebar-style is-collapsed"
+                : "technician-sidebar-style"
+              : undefined
+          }
           style={
             isCustomer
               ? {
@@ -1968,15 +2011,19 @@ function AppInner() {
                 }
             : isTechnicianShell && !isMobileLayout
               ? {
-                  ...(sidebarCollapsed
-                    ? {
-                        ...styles.sidebar,
-                        ...styles.sidebarCollapsed,
-                      }
-                    : styles.sidebar),
+                  ...styles.sidebar,
+                  width: sidebarCollapsed ? "64px" : "240px",
+                  minWidth: sidebarCollapsed ? "64px" : "240px",
+                  background: "#FFFFFF",
+                  borderRight: "1px solid #E2E8F0",
+                  boxShadow: "none",
                   position: "relative",
                   top: 0,
                   height: "calc(100vh - 60px)",
+                  flexShrink: 0,
+                  overflow: "hidden",
+                  boxSizing: "border-box",
+                  transition: "width 0.25s ease, min-width 0.25s ease",
                 }
               : isMobileLayout
                 ? styles.sidebarMobile
@@ -1989,7 +2036,7 @@ function AppInner() {
           }
         >
           {/* Customer attached semi-circle toggle tab (matches reference image) */}
-          {isCustomer && !isMobileLayout && (
+          {(isCustomer || isTechnicianShell) && !isMobileLayout && (
             <button
               type="button"
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -2117,47 +2164,7 @@ function AppInner() {
                   }
             }
           >
-          {isTechnician && !isMobileLayout ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "flex-end",
-                height: 32,
-                minHeight: 32,
-                flexShrink: 0,
-              }}
-            >
-              <button
-                type="button"
-                aria-label={
-                  sidebarCollapsed
-                    ? "Expand technician sidebar"
-                    : "Collapse technician sidebar"
-                }
-                title={
-                  sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
-                }
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                style={{
-                  width: 28,
-                  height: 28,
-                  padding: 0,
-                  border: "1px solid #D7E3DC",
-                  borderRadius: 8,
-                  background: "#FFFFFF",
-                  color: "#475569",
-                  boxShadow: "2px 2px 8px rgba(15, 23, 42, 0.10)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Menu size={16} />
-              </button>
-            </div>
-          ) : (
+          {!isMobileLayout && (
             <div
               aria-hidden="true"
               style={
@@ -2176,10 +2183,11 @@ function AppInner() {
 
           {isTechnician ? (
             <nav
+              className="technician-sidebar-nav"
               style={
                 isMobileLayout
                   ? styles.sidebarNavMobile
-                  : styles.sidebarNav
+                  : { ...styles.sidebarNav, position: "relative" }
               }
             >
               <button
@@ -2205,8 +2213,7 @@ function AppInner() {
                   style={
                     sidebarCollapsed
                       ? {
-                          display:
-                            "none",
+                          display: "none",
                         }
                       : {}
                   }
@@ -2214,6 +2221,8 @@ function AppInner() {
                   Dashboard
                 </span>
               </button>
+
+
 
               <button
                 className="nav-item-style"

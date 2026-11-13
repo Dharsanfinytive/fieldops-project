@@ -315,7 +315,7 @@ export default function RankedTechTable({
                 onClick={() => handleSort('distance')}
                 className="px-6 py-3.5 text-[10.5px] font-black uppercase text-slate-400 tracking-wider cursor-pointer hover:bg-slate-100/80 transition-colors whitespace-nowrap"
                 role="columnheader"
-                aria-sort={sortField === 'distance' ? sortOrder : 'none'}
+                aria-sort={sortField === 'distance' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
               >
                 <div className="flex items-center gap-1.5">
                   Distance
@@ -326,7 +326,7 @@ export default function RankedTechTable({
                 onClick={() => handleSort('skill')}
                 className="px-6 py-3.5 text-[10.5px] font-black uppercase text-slate-400 tracking-wider cursor-pointer hover:bg-slate-100/80 transition-colors whitespace-nowrap"
                 role="columnheader"
-                aria-sort={sortField === 'skill' ? sortOrder : 'none'}
+                aria-sort={sortField === 'skill' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
               >
                 <div className="flex items-center gap-1.5">
                   Skill Match
@@ -337,7 +337,7 @@ export default function RankedTechTable({
                 onClick={() => handleSort('workload')}
                 className="px-6 py-3.5 text-[10.5px] font-black uppercase text-slate-400 tracking-wider cursor-pointer hover:bg-slate-100/80 transition-colors whitespace-nowrap"
                 role="columnheader"
-                aria-sort={sortField === 'workload' ? sortOrder : 'none'}
+                aria-sort={sortField === 'workload' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
               >
                 <div className="flex items-center gap-1.5">
                   Workload
@@ -348,7 +348,7 @@ export default function RankedTechTable({
                 onClick={() => handleSort('score')}
                 className="px-6 py-3.5 text-[10.5px] font-black uppercase text-slate-400 tracking-wider cursor-pointer hover:bg-slate-100/80 transition-colors whitespace-nowrap"
                 role="columnheader"
-                aria-sort={sortField === 'score' ? sortOrder : 'none'}
+                aria-sort={sortField === 'workload' ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
               >
                 <div className="flex items-center gap-1.5">
                   Score

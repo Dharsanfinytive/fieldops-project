@@ -6,6 +6,10 @@ export interface ETAResponse {
   distance_meters: number;
   origin: { lat: number; lng: number };
   destination: { lat: number; lng: number };
+
+  status?: 'calculated' | 'estimated' | 'unknown';
+  traffic_delay_minutes?: number | null;
+  fallback?: boolean;
 }
 
 /**

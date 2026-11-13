@@ -1,4 +1,3 @@
-
 export interface JobNotificationDetail {
   id: string | number;
   title: string;
@@ -201,7 +200,7 @@ export interface ToastItem {
 export interface ToastContextValue {
   toasts: ToastItem[];
   addToast: (
-    toast: Omit<ToastItem, "id" | "timestamp"> | string,
+    toast: ToastInput | string,
     type?: ToastType
   ) => string;
   dismissToast: (id: string) => void;
@@ -210,3 +209,10 @@ export interface ToastContextValue {
   soundEnabled: boolean;
   setSoundEnabled: (enabled: boolean) => void;
 }
+
+export type ToastInput = Omit<
+  ToastItem,
+  "id" | "timestamp" | "autoDismiss" | "priority"
+> &
+  Partial<Pick<ToastItem, "autoDismiss" | "priority">>;
+

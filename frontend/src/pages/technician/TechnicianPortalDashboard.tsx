@@ -17,12 +17,14 @@ import {
   getTechnicianJobs,
   acceptTechnicianJob,
   rejectTechnicianJob,
+  updateTechnicianStatus,
 } from "../../services/technicianPortalService";
 import type {
   TechnicianDashboardResponse,
   TechnicianPerformanceReportResponse,
 } from "../../services/technicianPortalService";
 import TechnicianPerformanceReport from "../../components/technician/TechnicianPerformanceReport";
+import TechnicianJobAssignmentPopup from "../../components/technician/TechnicianJobAssignmentPopup";
 import useAuthStore from "../../store/authStore";
 import {
   formatAcceptanceCountdown,
@@ -37,6 +39,9 @@ import {
   haversineDistanceKm,
   parseCoordinates,
 } from "../../utils/geo";
+import { getTechnicianLocation } from "../../services/geolocationService";
+import { sendTechnicianAvailabilityLocation } from "../../services/gpsService";
+
 
 const normalizeTechnicianStatus = (
   status?: string | null,
@@ -224,7 +229,11 @@ export default function TechnicianPortalDashboard({
   const [offerError, setOfferError] = useState<string | null>(null);
   const [rejectingOffer, setRejectingOffer] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
-
+  const [technicianStatus, setTechnicianStatus] = useState<string | null>(null);
+  const [availabilityLastSyncedAt, setAvailabilityLastSyncedAt] = useState<number | null>(null);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [availabilityRetryVisible, setAvailabilityRetryVisible] = useState(false);
+  const [availabilityActionLoading, setAvailabilityActionLoading] = useState(false);
   const authUser = useAuthStore((state) => state.user);
   const technicianGpsLocation = useTechnicianGpsStore(
     (state) => state.location,
@@ -233,6 +242,101 @@ export default function TechnicianPortalDashboard({
   const [gpsFreshnessNow, setGpsFreshnessNow] = useState(Date.now());
   const dismissedOfferIds = useRef(new Set<number>());
 
+  const canToggleAvailability =
+    technicianStatus === "Available" ||
+    technicianStatus === "Offline";
+
+  const profileAllowsAvailabilityChange =
+    stats?.profile_completed === true;
+
+  const handleAvailabilityChange = async () => {
+    if (
+      availabilityActionLoading ||
+      !profileAllowsAvailabilityChange ||
+      !canToggleAvailability
+    ) {
+      return;
+    }
+
+    const goingOnline = technicianStatus === "Offline";
+
+    if (
+      availabilityLastSyncedAt !== null &&
+      Date.now() - availabilityLastSyncedAt > 15000
+    ) {
+      setAvailabilityError(
+        "Availability data is stale. Please verify your connection.",
+      );
+    } else {
+      setAvailabilityError(null);
+    }
+
+    setAvailabilityRetryVisible(false);
+    setAvailabilityActionLoading(true);
+
+    try {
+      if (goingOnline) {
+        const tenantId = String(authUser?.tenant_id ?? "").trim();
+
+        if (!tenantId) {
+          setAvailabilityError(
+            "Unable to verify your organization. Please sign in again.",
+          );
+          return;
+        }
+
+        try {
+          const position = await getTechnicianLocation({
+            maxAccuracyMeters: 150,
+          });
+
+          await sendTechnicianAvailabilityLocation(tenantId, {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            altitude: position.coords.altitude,
+            timestamp: new Date(position.timestamp).toISOString(),
+          });
+        } catch {
+          setAvailabilityError(
+            "Unable to save your location. Check GPS permissions and retry.",
+          );
+          setAvailabilityRetryVisible(true);
+          return;
+        }
+      }
+
+      try {
+        const response = await updateTechnicianStatus(
+          goingOnline ? "Available" : "Offline",
+        );
+
+        const confirmedStatus = normalizeTechnicianStatus(
+          response.data?.technician_status,
+        );
+
+        if (!confirmedStatus) {
+          setAvailabilityError(
+            "Unable to confirm your availability. Please refresh and try again.",
+          );
+          return;
+        }
+
+        setTechnicianStatus(confirmedStatus);
+        setAvailabilityLastSyncedAt(Date.now());
+        setAvailabilityError(null);
+        setAvailabilityRetryVisible(false);
+
+        onAvailabilityChange?.(confirmedStatus);
+      } catch {
+        setAvailabilityError(
+          "Unable to update your availability. Please check your connection and try again.",
+        );
+      }
+    } finally {
+      setAvailabilityActionLoading(false);
+    }
+  };
   useEffect(() => {
     let mounted = true;
     let requestInFlight = false;
@@ -260,20 +364,29 @@ export default function TechnicianPortalDashboard({
 
         if (!mounted) return;
 
-        let dashboardUpdated = false;
         let jobsUpdated = false;
 
         if (dashResult.status === "fulfilled") {
           const dashboardData = extractDashboardPayload(dashResult.value.data);
 
           if (dashboardData) {
-            dashboardUpdated = true;
+
             setStats(dashboardData);
 
             const authoritativeStatus = normalizeTechnicianStatus(
               dashboardData.technician_status,
             );
+            setTechnicianStatus(authoritativeStatus);
 
+            if (authoritativeStatus) {
+              setAvailabilityLastSyncedAt(Date.now());
+              setAvailabilityError(null);
+            } else {
+              setAvailabilityLastSyncedAt(null);
+              setAvailabilityError(
+                "Attendance and availability status is currently unavailable.",
+              );
+            }
             onAvailabilityChange?.(
               authoritativeStatus ?? "Not Available",
             );
@@ -282,11 +395,18 @@ export default function TechnicianPortalDashboard({
               "Technician dashboard API returned an unexpected payload:",
               dashResult.value.data,
             );
+
+            setAvailabilityError(
+              "Attendance and availability status is currently unavailable.",
+            );
           }
         } else {
           console.error(
             "Failed to load technician dashboard statistics:",
             dashResult.reason,
+          );
+          setAvailabilityError(
+            "Unable to load your attendance and availability status.",
           );
         }
 
@@ -307,7 +427,7 @@ export default function TechnicianPortalDashboard({
         }
 
         setDashboardRefreshError(
-          dashboardUpdated && jobsUpdated
+          jobsUpdated
             ? null
             : "Some dashboard data could not be refreshed. Showing the last available values.",
         );
@@ -774,6 +894,93 @@ export default function TechnicianPortalDashboard({
     return (
       <div style={s.page}>
         {welcomeBanner}
+        <section
+  aria-label="Technician attendance and availability"
+  style={{
+    ...s.section,
+    marginBottom: 16,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 16,
+  }}
+>
+  <div style={{ display: "grid", gap: 7 }}>
+    <strong style={{ color: "#14213D", fontSize: 16 }}>
+      Attendance & Availability
+    </strong>
+
+    <span style={{ color: "#52627E", fontSize: 13 }}>
+      Current availability: {technicianStatus ?? "Unavailable"}
+    </span>
+
+    <span style={{ color: "#71809B", fontSize: 12 }}>
+      Last synced:{" "}
+      {availabilityLastSyncedAt !== null
+        ? new Date(availabilityLastSyncedAt).toLocaleTimeString()
+        : "Not available"}
+    </span>
+  </div>
+
+  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <button
+      type="button"
+      data-testid="technician-availability-toggle"
+      aria-busy={availabilityActionLoading}
+      disabled={
+        stats?.profile_completed === false ||
+        technicianStatus === null ||
+        availabilityActionLoading
+      }
+      onClick={() => void handleAvailabilityChange()}
+      style={{
+        border: 0,
+        borderRadius: 9,
+        padding: "11px 20px",
+        background:
+          technicianStatus === "Available" ? "#DC2626" : "#078A4D",
+        color: "#FFFFFF",
+        fontWeight: 700,
+        cursor: "pointer",
+        opacity:
+          stats?.profile_completed === false ||
+          technicianStatus === null ||
+          availabilityActionLoading
+            ? 0.55
+            : 1,
+      }}
+    >
+      {technicianStatus === "Available" ? "Go Offline" : "Go Online"}
+    </button>
+
+    {availabilityRetryVisible && (
+      <button
+        type="button"
+        onClick={() => void handleAvailabilityChange()}
+        disabled={availabilityActionLoading}
+      >
+        Retry
+      </button>
+    )}
+  </div>
+
+  {availabilityError && (
+    <div
+      role="alert"
+      style={{
+        width: "100%",
+        padding: "10px 12px",
+        borderRadius: 8,
+        background: "#FFF7ED",
+        color: "#9A3412",
+        fontSize: 13,
+      }}
+    >
+      {availabilityError}
+    </div>
+  )}
+</section>
         <div style={s.empty}>
           Loading dashboard...
         </div>
@@ -783,6 +990,148 @@ export default function TechnicianPortalDashboard({
   return (
     <div style={s.page}>
       {welcomeBanner}
+
+      {assignedOffer && (
+        <>
+          <TechnicianJobAssignmentPopup
+            job={assignedOffer}
+            countdownSeconds={assignedOfferSeconds}
+            distanceDisplay={offerDistanceDisplay}
+            loading={offerActionLoading}
+            rejecting={rejectingOffer}
+            rejectReason={rejectReason}
+            onClose={dismissAssignedOffer}
+            onAccept={() => void handleAssignedOfferAccept()}
+            onReject={() => {
+              setOfferError(null);
+              setRejectReason("");
+              setRejectingOffer(true);
+            }}
+            onRejectReasonChange={setRejectReason}
+            onConfirmReject={() => void handleAssignedOfferReject()}
+            onCancelReject={() => {
+              setRejectingOffer(false);
+              setRejectReason("");
+              setOfferError(null);
+            }}
+          />
+
+          {offerError && (
+            <div
+              role="alert"
+              style={{
+                position: "fixed",
+                zIndex: 10000,
+                bottom: 24,
+                left: "50%",
+                transform: "translateX(-50%)",
+                padding: "12px 18px",
+                borderRadius: 9,
+                background: "#FEF2F2",
+                color: "#991B1B",
+                border: "1px solid #FECACA",
+                fontSize: 13,
+                boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+              }}
+            >
+              {offerError}
+            </div>
+          )}
+        </>
+      )}
+
+      <section
+        aria-label="Technician attendance and availability"
+        style={{
+          ...s.section,
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 16,
+        }}
+      >
+        <div style={{ display: "grid", gap: 7 }}>
+          <strong style={{ color: "#14213D", fontSize: 16 }}>
+            Attendance & Availability
+          </strong>
+
+          <span style={{ color: "#52627E", fontSize: 13 }}>
+            Current availability: {technicianStatus ?? "Unavailable"}
+          </span>
+
+          <span style={{ color: "#71809B", fontSize: 12 }}>
+            Last synced:{" "}
+            {availabilityLastSyncedAt !== null
+              ? new Date(availabilityLastSyncedAt).toLocaleTimeString()
+              : "Not available"}
+          </span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            type="button"
+            data-testid="technician-availability-toggle"
+            aria-busy={availabilityActionLoading}
+            disabled={
+              !profileAllowsAvailabilityChange ||
+              !canToggleAvailability ||
+              availabilityActionLoading
+            }
+            onClick={() => void handleAvailabilityChange()}
+            style={{
+              border: 0,
+              borderRadius: 9,
+              padding: "11px 20px",
+              background:
+                technicianStatus === "Available" ? "#DC2626" : "#078A4D",
+              color: "#FFFFFF",
+              fontWeight: 700,
+              cursor: "pointer",
+              opacity:
+                !profileAllowsAvailabilityChange ||
+                !canToggleAvailability ||
+                availabilityActionLoading
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            {technicianStatus === "Available"
+              ? "Go Offline"
+              : technicianStatus === "Offline"
+                ? "Go Online"
+                : technicianStatus ?? "Go Online"}
+          </button>
+
+          {availabilityRetryVisible && (
+            <button
+              type="button"
+              onClick={() => void handleAvailabilityChange()}
+              disabled={availabilityActionLoading}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+
+        {availabilityError && (
+          <div
+            role="alert"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "#FFF7ED",
+              color: "#9A3412",
+              fontSize: 13,
+            }}
+          >
+            {availabilityError}
+          </div>
+        )}
+      </section>
+
       {dashboardRefreshError && (
         <div
           role="alert"

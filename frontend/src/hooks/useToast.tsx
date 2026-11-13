@@ -18,7 +18,13 @@ import {
   useEffect,
   type ReactNode,
 } from 'react';
-import type { ToastItem, ToastContextValue, DispatchEventType } from '../types/notifications';
+import type {
+  ToastItem,
+  ToastContextValue,
+  DispatchEventType,
+  ToastType,
+  ToastInput,
+} from '../types/notifications';
 import {
   isSoundEnabled,
   setSoundEnabled as setSoundEnabledInService,
@@ -90,7 +96,7 @@ export function ToastProvider({ children }: ToastProviderProps) {
   }, []);
 
   const addToast = useCallback(
-    (incoming: Omit<ToastItem, 'id' | 'timestamp'> | string, maybeType?: ToastType): string => {
+    (incoming: ToastInput | string, maybeType?: ToastType): string => {
       let toastPayload: Omit<ToastItem, 'id' | 'timestamp'>;
 
       if (typeof incoming === 'string') {

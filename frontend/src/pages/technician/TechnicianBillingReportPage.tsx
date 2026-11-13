@@ -298,7 +298,7 @@ export default function TechnicianBillingReportPage() {
       `}</style>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, padding: "22px 24px", borderRadius: 14, background: "linear-gradient(105deg,#E7F7F2,#F3FAFD)", border: "1px solid #E1EFEF", marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}><div style={{ width: 62, height: 62, borderRadius: 15, background: "#078D6A", display: "grid", placeItems: "center", color: "white" }}><FileText size={33} /></div><div><h1 style={{ margin: 0, color: "#122846", fontSize: 28, fontWeight: 750 }}>Billing Reports</h1><p style={{ margin: "6px 0 0", color: "#64748B", fontSize: 14 }}>View and download detailed billing reports for your completed jobs.</p></div></div>
-        <button type="button" style={{ ...styles.refreshButton, borderColor: "#9ED5C8", color: "#078D6A", padding: "11px 17px" }} onClick={loadReports} disabled={loading}><RefreshCw size={15} />{loading ? "Loading..." : "Refresh"}</button>
+        <button type="button" style={{ ...styles.refreshButton, borderColor: "#9ED5C8", color: "#078D6A", padding: "11px 17px" }} onClick={() => { void loadReports(); }} disabled={loading}><RefreshCw size={15} />{loading ? "Loading..." : "Refresh"}</button>
       </header>
 
       <section className="billing-filter-grid" aria-label="Filter billing reports" style={{ padding: 14, border: "1px solid #E5EBF3", borderRadius: 13, background: "white", boxShadow: "0 2px 8px rgba(25,54,91,.04)" }}>
