@@ -57,7 +57,7 @@ describe('Geofence Alerts System Tests', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    originalLocalStorage = global.localStorage;
+    originalLocalStorage = window.localStorage;
     if (typeof window !== 'undefined') {
       originalWindowLocalStorage = window.localStorage;
     }
@@ -76,7 +76,7 @@ describe('Geofence Alerts System Tests', () => {
         delete localStorageStore[key];
       }),
     };
-    Object.defineProperty(global, 'localStorage', { value: localStorageMock, writable: true, configurable: true });
+    Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true, configurable: true });
     if (typeof window !== 'undefined') {
       Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true, configurable: true });
     }
@@ -95,7 +95,7 @@ describe('Geofence Alerts System Tests', () => {
   afterEach(() => {
     vi.useRealTimers();
     if (originalLocalStorage) {
-      Object.defineProperty(global, 'localStorage', { value: originalLocalStorage, writable: true, configurable: true });
+      Object.defineProperty(window, 'localStorage', { value: originalLocalStorage, writable: true, configurable: true });
     }
     if (originalWindowLocalStorage && typeof window !== 'undefined') {
       Object.defineProperty(window, 'localStorage', { value: originalWindowLocalStorage, writable: true, configurable: true });

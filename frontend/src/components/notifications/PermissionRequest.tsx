@@ -391,7 +391,10 @@ export const PermissionRequest: React.FC<PermissionRequestProps> = ({
 
   if (dismissed && permission === "default") {
     return (
-      <div style={styles.container} className={`noc-module ${className} pr-animate-in`} style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div
+        className={`noc-module ${className} pr-animate-in`}
+        style={{ ...styles.container, display: "flex", justifyContent: "flex-end" }}
+      >
         <style>{localCss}</style>
         <button
           type="button"

@@ -11,7 +11,7 @@ import {
 import { useMapLayersStore } from '../../store/mapLayersStore';
 import { MapLayerControls } from './MapLayerControls';
 
-const libraries: ('places' | 'drawing' | 'geometry' | 'localContext' | 'visualization')[] = [];
+const libraries: ('places' | 'drawing' | 'geometry' | 'visualization')[] = [];
 
 const mapContainerStyle = {
   width: '100%',

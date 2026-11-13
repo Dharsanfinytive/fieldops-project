@@ -1085,7 +1085,7 @@ function CustomerSupportView() {
                   </p>
 
                   <div style={{ fontSize: "12px", color: "#64748B", marginBottom: "8px" }}>
-                    {item.category.replaceAll("_", " ")} · {item.priority} priority · {item.assigned_staff_name ? `Assigned to ${item.assigned_staff_name}` : "Waiting for assignment"}
+                    {String(item.category || "OTHER").replace(/_/g, " ")} · {item.priority} priority · {item.assigned_staff_name ? `Assigned to ${item.assigned_staff_name}` : "Waiting for assignment"}
                   </div>
 
                   {item.related_job_id !=
@@ -1781,7 +1781,7 @@ function StaffCustomerSupportView({
                 </div>
 
                 <div style={{ fontSize: "11px", color: "#64748B", marginBottom: "8px" }}>
-                  {item.priority} priority · {item.category.replaceAll("_", " ")} · {item.assigned_staff_name ? `Assigned to ${item.assigned_staff_name}` : "Unassigned"}
+                  {item.priority} priority · {String(item.category || "OTHER").replace(/_/g, " ")} · {item.assigned_staff_name ? `Assigned to ${item.assigned_staff_name}` : "Unassigned"}
                 </div>
 
                 <div
@@ -1932,7 +1932,14 @@ function StaffCustomerSupportView({
                   <div style={{ fontSize: 12, color: "#475569", marginTop: 5 }}>
                     {selectedRequest.sentiment_triage.sentiment} · {selectedRequest.sentiment_triage.emotion || "Emotion not recorded"} · Urgency {selectedRequest.sentiment_triage.urgency || "—"} · Severity {selectedRequest.sentiment_triage.severity || "—"} · {Math.round(selectedRequest.sentiment_triage.confidence * 100)}% confidence
                   </div>
-                  {selectedRequest.sentiment_triage.issue_categories.length > 0 && <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>Signals: {selectedRequest.sentiment_triage.issue_categories.map((value) => value.replaceAll("_", " ").toLowerCase()).join(", ")}</div>}
+                  {Array.isArray(selectedRequest.sentiment_triage.issue_categories) &&
+                    selectedRequest.sentiment_triage.issue_categories.length > 0 && (
+                      <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>
+                        Signals: {selectedRequest.sentiment_triage.issue_categories
+                          .map((value) => String(value ?? "").replace(/_/g, " ").toLowerCase())
+                          .join(", ")}
+                      </div>
+                    )}
                   {selectedRequest.sentiment_triage.recommended_action && <div style={{ fontSize: 12, marginTop: 5 }}>Suggested next step: {selectedRequest.sentiment_triage.recommended_action}</div>}
                 </div>}
                 <h3 style={styles.detailTitle}>Chat transcript attached to this case</h3>
@@ -2234,7 +2241,7 @@ function StaffCustomerSupportView({
                 <div style={styles.field}>
                   <label htmlFor="support-category" style={styles.label}>Category</label>
                   <select id="support-category" value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)} disabled={saving} style={styles.select}>
-                    {["OTHER", "GENERAL", "BILLING", "SERVICE_QUALITY", "TECHNICIAN", "SCHEDULING", "ACCOUNT"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
+                    {["OTHER", "GENERAL", "BILLING", "SERVICE_QUALITY", "TECHNICIAN", "SCHEDULING", "ACCOUNT"].map((value) => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}
                   </select>
                 </div>
 
@@ -2250,7 +2257,7 @@ function StaffCustomerSupportView({
                     htmlFor="support-resolution"
                     style={styles.label}
                   >
-                    Customer-visible update
+                    Resolution / response
                   </label>
 
                   <textarea

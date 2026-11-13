@@ -202,7 +202,7 @@ export const JobStatusBadge: React.FC<JobStatusBadgeProps> = ({
   className = "",
 }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const badgeRef = useRef<HTMLDivElement | null>(null);
 
   // Sync with Zustand theme store

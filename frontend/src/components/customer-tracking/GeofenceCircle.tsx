@@ -9,7 +9,7 @@ interface GeofenceCircleProps {
     latitude: number;
     longitude: number;
     status: string;
-    sla_deadline: string | null;
+    sla_deadline?: string | null;
   };
 }
 

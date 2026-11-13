@@ -136,7 +136,6 @@ export const TechnicianMarker: React.FC<TechnicianMarkerProps> = ({
           position={animatedPos}
           options={{
             disableAutoPan: true,
-            closeBoxURL: '',
           }}
         >
           <div className="flex items-center gap-2.5 p-1 select-none font-sans max-w-[200px]">

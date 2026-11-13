@@ -16,7 +16,7 @@ const localStorageMock = {
     delete localStorageStore[key];
   }),
 };
-Object.defineProperty(global, 'localStorage', { value: localStorageMock, writable: true });
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -32,8 +32,7 @@ beforeEach(() => {
   useMapLayersStore.getState().restorePreferences();
   
   // Setup standard google.maps mock
-  global.window = global.window || {};
-  (global.window as any).google = {
+  (window as any).google = {
     maps: {
       Point: class {
         constructor(public x: number, public y: number) {}
