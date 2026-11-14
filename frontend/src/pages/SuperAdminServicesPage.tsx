@@ -30,6 +30,7 @@ import {
   type TaxonomySuggestionsResponse,
 } from "../services/servicesCatalogService";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
+import ConfirmationDialog from "../components/ui/ConfirmationDialog";
 import { useToast } from "../hooks/useToast";
 import useAuthStore from "../store/authStore";
 import { SERVICE_CATALOGUE_TAXONOMY } from "../data/serviceCatalogueTaxonomy";
@@ -55,6 +56,8 @@ export default function SuperAdminServicesPage({ readOnly = false }: SuperAdminS
   const [services, setServices] = useState<ServiceCatalogItem[]>([]);
   const [taxonomySuggestions, setTaxonomySuggestions] = useState<TaxonomySuggestionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -308,15 +311,24 @@ export default function SuperAdminServicesPage({ readOnly = false }: SuperAdminS
   };
 
   // Delete service
-  const handleDeleteService = async (id: number, issueName: string) => {
+  const handleDeleteService = (id: number, issueName: string) => {
     if (readOnly) return;
-    if (!window.confirm(`Are you sure you want to delete "${issueName}"?`)) return;
+    setDeleteTarget({ id, name: issueName });
+  };
+
+  const confirmDeleteService = async () => {
+    if (!deleteTarget) return;
+    const { id, name: issueName } = deleteTarget;
+    setDeleteBusy(true);
     try {
       await deleteAdminService(id);
       setServices((prev) => prev.filter((s) => s.id !== id));
       addToast(`✓ Service "${issueName}" deleted`, "info");
+      setDeleteTarget(null);
     } catch (err: any) {
       addToast(err?.response?.data?.detail || "Failed to delete service", "error");
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -1587,6 +1599,14 @@ export default function SuperAdminServicesPage({ readOnly = false }: SuperAdminS
           </div>
         </div>
       )}
+      <ConfirmationDialog
+        open={deleteTarget !== null}
+        title="Delete service issue?"
+        message={deleteTarget ? `Are you sure you want to delete “${deleteTarget.name}”? This change cannot be undone.` : ""}
+        busy={deleteBusy}
+        onConfirm={confirmDeleteService}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

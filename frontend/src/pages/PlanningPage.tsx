@@ -232,6 +232,47 @@ const getPriorityStyle = (priority: string): React.CSSProperties => {
   return { ...base, background: "#F0F4F2", color: "#6B7280" };
 };
 
+const getJobStatusStyle = (status: string): React.CSSProperties => {
+  const normalizedStatus = (status || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+  const base: React.CSSProperties = {
+    fontSize: "10px",
+    fontWeight: 700,
+    padding: "4px 9px",
+    borderRadius: "20px",
+    textTransform: "uppercase",
+    letterSpacing: "0.02em",
+    display: "inline-block",
+    border: "1px solid transparent",
+    whiteSpace: "nowrap",
+  };
+
+  if (["COMPLETED", "COMPLETE", "CLOSED"].includes(normalizedStatus)) {
+    return { ...base, background: "#DCFCE7", color: "#166534", borderColor: "#BBF7D0" };
+  }
+  if (["CANCELLED", "CANCELED", "REJECTED", "FAILED", "DECLINED"].includes(normalizedStatus)) {
+    return { ...base, background: "#FEE2E2", color: "#B91C1C", borderColor: "#FECACA" };
+  }
+  if (["IN_PROGRESS", "INPROGRESS", "ON_SITE"].includes(normalizedStatus)) {
+    return { ...base, background: "#FEF3C7", color: "#92400E", borderColor: "#FDE68A" };
+  }
+  if (["EN_ROUTE", "ENROUTE", "TRAVELLING"].includes(normalizedStatus)) {
+    return { ...base, background: "#EDE9FE", color: "#6D28D9", borderColor: "#DDD6FE" };
+  }
+  if (["ASSIGNED", "ACCEPTED"].includes(normalizedStatus)) {
+    return { ...base, background: "#DBEAFE", color: "#1D4ED8", borderColor: "#BFDBFE" };
+  }
+  if (["CREATED", "NEW"].includes(normalizedStatus)) {
+    return { ...base, background: "#E0F2FE", color: "#0369A1", borderColor: "#BAE6FD" };
+  }
+  if (["QUEUED", "WAITING_FOR_ACCEPTANCE", "PENDING", "UNASSIGNED"].includes(normalizedStatus)) {
+    return { ...base, background: "#F1F5F9", color: "#475569", borderColor: "#D8E1EA" };
+  }
+  return { ...base, background: "#F1F5F9", color: "#475569", borderColor: "#D8E1EA" };
+};
+
 const isSkillMatching = (techSkill: string, jobRequiredSkill?: string, jobServiceType?: string): boolean => {
   if (!techSkill) return true;
   const tSkill = techSkill.trim().toUpperCase().replace(/_/g, " ");
@@ -271,6 +312,7 @@ interface PendingJob {
   status?: string;
   sla_deadline?: string;
   attempt_count?: number;
+  assigned_technician_id?: number | null;
 }
 
 interface PlannedAssignment {
@@ -278,6 +320,7 @@ interface PlannedAssignment {
   technician: string;
   skill?: string;
   customer: string;
+  service_type?: string;
   location?: string;
   priority?: string;
   status?: string;
@@ -1174,11 +1217,17 @@ const ShareTrackingLinkButton = ({ jobId }: { jobId: string | number }) => {
 };
 interface PlanningDashboardProps {
   onViewCompletedJob?: (job: any) => void;
+  globalSearch?: string;
 }
 function PlanningDashboard({
   onViewCompletedJob,
+  globalSearch = "",
 }: PlanningDashboardProps) {
   const [pendingJobs, setPendingJobs] = useState<PendingJob[]>([]);
+  const [totalJobs, setTotalJobs] = useState<PendingJob[]>([]);
+  const [totalJobsCount, setTotalJobsCount] = useState(0);
+  const [totalJobsLoading, setTotalJobsLoading] = useState(false);
+  const [totalJobsPage, setTotalJobsPage] = useState(1);
   const [plannedAssignments, setPlannedAssignments] = useState<PlannedAssignment[]>([]);
   const [allTechsList, setAllTechsList] = useState<Technician[]>([]);
   const [totalPendingCount, setTotalPendingCount] = useState(0);
@@ -1461,6 +1510,10 @@ function PlanningDashboard({
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  useEffect(() => {
+    setSearchQuery(globalSearch);
+  }, [globalSearch]);
+
   
 useEffect(() => {
   const hasActiveFilters =
@@ -1649,6 +1702,56 @@ useEffect(() => {
     }
   };
 
+  const fetchTotalJobs = async (silent = false) => {
+    try {
+      if (!silent) setTotalJobsLoading(true);
+      const technicianId =
+        planningFilters.technician === "ALL"
+          ? undefined
+          : Number(planningFilters.technician);
+      const response = await getJobs({
+        search: debSearchQuery.trim() || undefined,
+        status:
+          planningFilters.status === "ALL"
+            ? undefined
+            : planningFilters.status,
+        priority:
+          planningFilters.priority === "ALL"
+            ? undefined
+            : planningFilters.priority,
+        service_type:
+          planningFilters.serviceType === "ALL"
+            ? undefined
+            : planningFilters.serviceType,
+        sla:
+          planningFilters.sla === "ALL"
+            ? undefined
+            : planningFilters.sla,
+        location: planningFilters.location.trim() || undefined,
+        technician_id:
+          technicianId !== undefined && Number.isFinite(technicianId)
+            ? technicianId
+            : undefined,
+        page: totalJobsPage,
+        limit: PAGE_SIZE,
+      });
+      const rows = Array.isArray(response?.data) ? response.data : [];
+      const countHeader =
+        response?.headers?.["x-total-count"] ??
+        response?.headers?.["X-Total-Count"];
+      const parsedCount = Number.parseInt(String(countHeader ?? ""), 10);
+      setTotalJobs(rows);
+      setTotalJobsCount(
+        Number.isFinite(parsedCount) ? parsedCount : rows.length,
+      );
+    } catch (fetchError) {
+      console.error("Failed to load total jobs:", fetchError);
+      if (!silent) setError("Failed to load total jobs. Please try again.");
+    } finally {
+      if (!silent) setTotalJobsLoading(false);
+    }
+  };
+
   const fetchTechniciansList = async () => {
     try {
       const res = await getTechnicians();
@@ -1750,6 +1853,7 @@ const fetchCompletedCount = async () => {
     await Promise.all([
       fetchPendingJobs(debSearchQuery, silent),
       fetchPlannedAssignments(debSearchQuery, silent),
+      fetchTotalJobs(silent),
       fetchTechniciansList(),
       fetchDispatchQueueCount(),
       fetchInProgressCount(),
@@ -1959,6 +2063,7 @@ const fetchCompletedCount = async () => {
   useEffect(() => {
     setPendingPage(1);
     setPlannedPage(1);
+    setTotalJobsPage(1);
   }, [debSearchQuery, activeMetricFilter]);
 
   useEffect(() => {
@@ -1968,6 +2073,10 @@ const fetchCompletedCount = async () => {
   useEffect(() => {
     fetchPlannedAssignments(debSearchQuery);
   }, [debSearchQuery, plannedPage]);
+
+  useEffect(() => {
+    fetchTotalJobs();
+  }, [debSearchQuery, totalJobsPage, planningFilters]);
 
   useEffect(() => {
     const tenantId =
@@ -2721,6 +2830,8 @@ const fetchCompletedCount = async () => {
   const plannedTotalPages = Math.max(1, Math.ceil(totalPlannedCount / PAGE_SIZE));
   const safePlannedPage = Math.min(plannedPage, plannedTotalPages);
   const paginatedPlannedAssignments = filteredPlannedAssignments;
+  const totalJobsTotalPages = Math.max(1, Math.ceil(totalJobsCount / PAGE_SIZE));
+  const safeTotalJobsPage = Math.min(totalJobsPage, totalJobsTotalPages);
 
   const handleExport = () => {
     if (exporting) return;
@@ -2841,16 +2952,8 @@ const fetchCompletedCount = async () => {
 >
       <style>{localCss}</style>
       <PlanningJobFilters
+  activeTab={activeTab}
   technicians={allTechsList}
-  resultCount={
-    totalPendingCount +
-    totalPlannedCount +
-    dispatchQueueCount +
-    inProgressCount +
-    completedCount +
-    declinedJobsList.length
-  }
-  onRefresh={() => fetchAllData()}
   onFiltersChange={setPlanningFilters}
 />
 
@@ -3031,6 +3134,31 @@ const fetchCompletedCount = async () => {
       {/* ── Tab Navigation ── */}
       <div className="planning-tabs-responsive" style={styles.planningTabs}>
         <div className="planning-tab-btn-group" style={{ display: "flex", overflowX: "auto", flexWrap: "nowrap", flex: 1 }}>
+          <button
+            className={`planning-tab-style ${activeTab === "total" ? "active-tab-style" : ""}`}
+            style={{
+              ...styles.planningTab,
+              ...(activeTab === "total" ? styles.planningTabActive : {}),
+              paddingLeft: "16px",
+              paddingRight: "16px",
+            }}
+            onClick={() => setActiveTab("total")}
+          >
+            <span
+              className="planning-tab-dot-style"
+              style={{
+                ...styles.planningTabDot,
+                backgroundColor: "#0F766E",
+                boxShadow: "0 0 0 2px rgba(15,118,110,0.15)",
+              }}
+            />
+            <span>Total Jobs</span>
+            <span style={{
+              ...styles.planningTabCount,
+              ...(activeTab === "total" ? styles.planningTabCountActive : {})
+            }}>{totalJobsCount}</span>
+          </button>
+          <div className="planning-tab-divider" />
           <button
             className={`planning-tab-style ${activeTab === 'planned' ? 'active-tab-style' : ''}`}
             style={{
@@ -3214,6 +3342,94 @@ const fetchCompletedCount = async () => {
       </div>
 
       {/* ── Tab Content ── */}
+
+      {/* TOTAL JOBS TAB */}
+      {activeTab === "total" && (
+        <section style={styles.dashboardSection}>
+          <div style={styles.sectionContent}>
+            {totalJobsLoading ? (
+              <LoadingSpinner message="Loading total jobs..." />
+            ) : totalJobs.length === 0 ? (
+              <EmptyState
+                title={debSearchQuery.trim() ? "No jobs match your search" : "No jobs found"}
+                description={debSearchQuery.trim() ? "Try adjusting your search terms." : "There are no jobs to display for the selected filters."}
+              />
+            ) : (
+              <>
+                <div style={styles.tableContainer}>
+                  <table style={styles.dashboardTable}>
+                    <thead>
+                      <tr>
+                        <th style={styles.dashboardTableTh}>Job ID</th>
+                        <th style={styles.dashboardTableTh}>Customer Name</th>
+                        <th style={styles.dashboardTableTh}>Service Name</th>
+                        <th style={styles.dashboardTableTh}>Technician Name</th>
+                        <th style={styles.dashboardTableTh}>Priority</th>
+                        <th style={styles.dashboardTableTh}>Status</th>
+                        <th style={styles.dashboardTableTh}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="planning-table-body">
+                      {totalJobs.map((job) => {
+                        const assignedTechnician = allTechsList.find(
+                          (technician) =>
+                            String(technician.technician_id) ===
+                            String(job.assigned_technician_id),
+                        );
+                        const status = (job.status || job.job_status || "UNKNOWN")
+                          .trim()
+                          .replace(/[\s_-]+/g, " ")
+                          .toUpperCase();
+                        return (
+                          <tr key={job.id} className="dashboard-table-row">
+                            <td style={{ ...styles.dashboardTableTd, ...styles.jobIdCell }}>#{job.id}</td>
+                            <td style={{ ...styles.dashboardTableTd, ...styles.customerCell }}>
+                              <strong>{job.customer_name || "—"}</strong>
+                            </td>
+                            <td style={styles.dashboardTableTd}>{job.service_type || job.required_skill || "—"}</td>
+                            <td style={styles.dashboardTableTd}>{assignedTechnician?.technician_name || "Not Assigned"}</td>
+                            <td style={styles.dashboardTableTd}>
+                              <span style={getPriorityStyle(job.priority || "UNKNOWN")}>
+                                {job.priority || "UNKNOWN"}
+                              </span>
+                            </td>
+                            <td style={styles.dashboardTableTd}>
+                              <span style={getJobStatusStyle(status)}>{status}</span>
+                            </td>
+                            <td style={styles.dashboardTableTd}>
+                              <button
+                                type="button"
+                                className="icon-action-btn-style"
+                                aria-label={`View Job ${job.id}`}
+                                title={`View Job ${job.id}`}
+                                onClick={() => onViewCompletedJob?.({
+                                  ...job,
+                                  technician_name: assignedTechnician?.technician_name || null,
+                                })}
+                              >
+                                <Eye size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={styles.planningPagination}>
+                  <span style={styles.planningPageInfo}>
+                    Page <strong>{safeTotalJobsPage}</strong> of <strong>{totalJobsTotalPages}</strong> · {totalJobsCount} results
+                  </span>
+                  <div style={styles.planningPageControls}>
+                    <button className="planning-page-btn-style" style={styles.planningPageBtn} onClick={() => setTotalJobsPage((page) => Math.max(1, page - 1))} disabled={safeTotalJobsPage === 1}>‹ Prev</button>
+                    <button className="planning-page-btn-style" style={styles.planningPageBtn} onClick={() => setTotalJobsPage((page) => Math.min(totalJobsTotalPages, page + 1))} disabled={safeTotalJobsPage === totalJobsTotalPages}>Next ›</button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* UNASSIGNED JOBS TAB */}
       {activeTab === 'pending' && (
@@ -3925,21 +4141,16 @@ const fetchCompletedCount = async () => {
                       <thead>
                         <tr>
                           <th style={styles.dashboardTableTh}>Job ID</th>
-                          <th style={styles.dashboardTableTh}>Technician</th>
-                          <th style={styles.dashboardTableTh}>Customer</th>
-                          <th style={styles.dashboardTableTh}>Location</th>
+                          <th style={styles.dashboardTableTh}>Customer Name</th>
+                          <th style={styles.dashboardTableTh}>Service Name</th>
+                          <th style={styles.dashboardTableTh}>Technician Name</th>
                           <th style={styles.dashboardTableTh}>Priority</th>
                           <th style={styles.dashboardTableTh}>Status</th>
+                          <th style={styles.dashboardTableTh}>Action</th>
                         </tr>
                       </thead>
                       <tbody key={safePlannedPage} className="planning-table-body">
                        {metricFilteredPendingJobs.map((job) => {
-  const selectedTechnician = allTechsList.find(
-    (tech) =>
-      String(tech.technician_id) ===
-      String(selectedTechs[job.id]),
-  );
-
   return (
     <tr
       key={`pending-${job.id}`}
@@ -3955,19 +4166,7 @@ const fetchCompletedCount = async () => {
         #{job.id}
       </td>
 
-      {/* 2. Technician */}
-<td style={styles.dashboardTableTd}>
-  <strong
-    style={{
-      color: "#64748B",
-      fontSize: "12px",
-    }}
-  >
-    Not Assigned
-  </strong>
-</td>
-
-      {/* 3. Customer */}
+      {/* 2. Customer */}
       <td
         style={{
           ...styles.dashboardTableTd,
@@ -3983,9 +4182,16 @@ const fetchCompletedCount = async () => {
         )}
       </td>
 
-      {/* 4. Location */}
+      {/* 3. Service */}
       <td style={styles.dashboardTableTd}>
-        {job.location || "—"}
+        {job.service_type || job.required_skill || "—"}
+      </td>
+
+      {/* 4. Technician */}
+      <td style={styles.dashboardTableTd}>
+        <strong style={{ color: "#64748B", fontSize: "12px" }}>
+          Not Assigned
+        </strong>
       </td>
 
       {/* 5. Priority */}
@@ -3996,35 +4202,35 @@ const fetchCompletedCount = async () => {
           {job.priority || "UNKNOWN"}
         </span>
       </td>
-
       {/* 6. Status */}
       <td style={styles.dashboardTableTd}>
         <span
-          style={{
-            ...styles.statusBadge,
-            background: "#F3F4F6",
-            color: "#64748B",
-            border: "1px solid #E2E8F0",
-          }}
+          style={getJobStatusStyle(job.status || job.job_status || "WAITING FOR ACCEPTANCE")}
         >
-          WAITING FOR ACCEPTANCE
+          {(job.status || job.job_status || "WAITING FOR ACCEPTANCE")
+            .replace(/[\s_-]+/g, " ")
+            .toUpperCase()}
         </span>
+      </td>
+      <td style={styles.dashboardTableTd}>
+        <button
+          type="button"
+          className="icon-action-btn-style"
+          aria-label={`View Job ${job.id}`}
+          title={`View Job ${job.id}`}
+          onClick={() => onViewCompletedJob?.({
+            ...job,
+            service_type: job.service_type || job.required_skill,
+            technician_name: null,
+          })}
+        >
+          <Eye size={16} />
+        </button>
       </td>
     </tr>
   );
 })}
-                        {paginatedPlannedAssignments.map((item) => {
-  const normalizedStatus = (item.status || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[\s-]+/g, "_");
-
-  const isAccepted = [
-    "ACCEPTED",
-    "ACCEPTED_BY_TECHNICIAN",
-  ].includes(normalizedStatus);
-
-  return (
+                        {paginatedPlannedAssignments.map((item) => (
     <tr
       key={item.job_id}
       className="dashboard-table-row"
@@ -4039,26 +4245,7 @@ const fetchCompletedCount = async () => {
         #{item.job_id}
       </td>
 
-      {/* 2. Technician */}
-      <td style={styles.dashboardTableTd}>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "2px",
-          }}
-        >
-          <strong>{item.technician || "Not Assigned"}</strong>
-
-          {item.skill && (
-            <span style={styles.skillSub}>
-              {item.skill}
-            </span>
-          )}
-        </div>
-      </td>
-
-      {/* 3. Customer */}
+      {/* 2. Customer */}
       <td
         style={{
           ...styles.dashboardTableTd,
@@ -4068,9 +4255,14 @@ const fetchCompletedCount = async () => {
         {item.customer}
       </td>
 
-      {/* 4. Location */}
+      {/* 3. Service */}
       <td style={styles.dashboardTableTd}>
-        {item.location || "—"}
+        {item.service_type || "—"}
+      </td>
+
+      {/* 4. Technician */}
+      <td style={styles.dashboardTableTd}>
+        <strong>{item.technician || "Not Assigned"}</strong>
       </td>
 
       {/* 5. Priority */}
@@ -4079,33 +4271,37 @@ const fetchCompletedCount = async () => {
           {item.priority || "UNKNOWN"}
         </span>
       </td>
-
       {/* 6. Status */}
       <td style={styles.dashboardTableTd}>
         <span
-          style={{
-            ...styles.statusBadge,
-            ...(isAccepted
-              ? {
-                  background: "#D1FAE5",
-                  color: "#065F46",
-                  border: "1px solid #A7F3D0",
-                }
-              : {
-                  background: "#FEF3C7",
-                  color: "#92400E",
-                  border: "1px solid #FDE68A",
-                }),
-          }}
+          style={getJobStatusStyle(item.status || "WAITING FOR ACCEPTANCE")}
         >
-          {isAccepted
-            ? "ACCEPTED"
-            : "WAITING FOR ACCEPTANCE"}
+          {(item.status || "WAITING FOR ACCEPTANCE")
+            .replace(/[\s_-]+/g, " ")
+            .toUpperCase()}
         </span>
       </td>
+      <td style={styles.dashboardTableTd}>
+        <button
+          type="button"
+          className="icon-action-btn-style"
+          aria-label={`View Job ${item.job_id}`}
+          title={`View Job ${item.job_id}`}
+          onClick={() => onViewCompletedJob?.({
+            id: item.job_id,
+            customer_name: item.customer,
+            service_type: item.service_type,
+            priority: item.priority,
+            status: item.status,
+            location: item.location,
+            technician_name: item.technician,
+          })}
+        >
+          <Eye size={16} />
+        </button>
+      </td>
     </tr>
-  );
-})}
+  ))}
                       </tbody>
                     </table>
                   )}

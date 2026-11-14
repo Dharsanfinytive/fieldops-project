@@ -3351,6 +3351,17 @@ def test_get_service_types():
 # ---------------------------------------------------------------------------
 
 def test_get_planned_assignments():
+    # Job 102 is initialized as in progress; make it a planned-stage job for
+    # this endpoint's positive and search assertions.
+    db = TestingSessionLocal()
+    try:
+        job = db.query(Job).filter(Job.id == 102).first()
+        assert job is not None
+        job.status = "ACCEPTED"
+        db.commit()
+    finally:
+        db.close()
+
     response = client.get("/planned-assignments")
 
     assert response.status_code == 200
@@ -11161,6 +11172,19 @@ def test_get_jobs_stats_job_card_counts_by_status(setup_db):
     # Add jobs for each technician workflow status.
     extra_jobs = [
         Job(
+            id=110,
+            tenant_id="tenant-1",
+            customer_name="Awaiting Acceptance Job",
+            status="assigned",
+            priority="MEDIUM",
+            service_type="Electrical Service",
+            location="Central Zone",
+            issue_description="Assigned and waiting for technician",
+            contact_number="9876543219",
+            preferred_service_date=now,
+            assigned_technician_id=1,
+        ),
+        Job(
             id=105,
             tenant_id="tenant-1",
             customer_name="Accepted Job",
@@ -11247,10 +11271,11 @@ def test_get_jobs_stats_job_card_counts_by_status(setup_db):
     cards = result["job_cards"]
 
     # Four jobs already exist in the test fixture.
-    assert cards["total"] == 9
+    assert cards["total"] == 10
 
     # Existing unassigned job with status "active".
     assert cards["unassigned"] == 1
+    assert cards["awaiting_acceptance"] == 1
 
     assert cards["accepted"] == 1
     assert cards["en_route"] == 1

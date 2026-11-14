@@ -71,7 +71,7 @@ class ClosureGenerationInput(BaseModel):
 
     technician_notes: str = Field(..., min_length=5, max_length=5000)
     parts_used: list[str] = Field(default_factory=list, max_length=100)
-    duration_minutes: int = Field(..., ge=0)
+    duration_minutes: Optional[int] = Field(default=None, ge=0)
     customer_confirmation: Optional[str] = Field(default=None, max_length=2000)
 
 
@@ -325,6 +325,16 @@ def get_jobs_stats(
                     Job.assigned_technician_id.is_(None),
                     all_time_status.in_(
                         ["CREATED", "QUEUED", "ACTIVE", "UNASSIGNED"]
+                    ),
+                )
+            ),
+
+            # Assigned jobs remain pending until the technician accepts.
+            "awaiting_acceptance": count_unique_jobs(
+                all_time_query.filter(
+                    Job.assigned_technician_id.isnot(None),
+                    all_time_status.in_(
+                        ["ASSIGNED", "AWAITINGACCEPTANCE", "DISPATCHED"]
                     ),
                 )
             ),
@@ -860,11 +870,27 @@ def get_jobs(
         
         if search:
             search_pattern = f"%{search}%"
-            query = query.filter(
+            normalized_job_id = search.strip().lstrip("#").strip()
+            if normalized_job_id.lower().startswith("job "):
+                normalized_job_id = normalized_job_id[4:].strip()
+            id_filter = None
+            try:
+                id_filter = Job.id == int(normalized_job_id)
+            except ValueError:
+                pass
+
+            text_filter = (
                 (Job.customer_name.ilike(search_pattern)) |
                 (Job.location.ilike(search_pattern)) |
-                (Job.issue_description.ilike(search_pattern))
+                (Job.issue_description.ilike(search_pattern)) |
+                (Job.service_type.ilike(search_pattern)) |
+                Job.assigned_technician_id.in_(
+                    db.query(Technician.technician_id).filter(
+                        Technician.technician_name.ilike(search_pattern)
+                    )
+                )
             )
+            query = query.filter(or_(id_filter, text_filter) if id_filter is not None else text_filter)
             
         if status and status.upper() != "ALL":
             normalized_input = (
@@ -2734,7 +2760,7 @@ async def assign_job(
                 "exclusion_bypassed": True,
             },
         }
-@router.get("/{job_id}", response_model=JobResponse)
+@router.get("/{job_id:int}", response_model=JobResponse)
 def get_job_by_id(
     job_id: int,
     current_user: AuthenticatedUser = Depends(
@@ -4688,6 +4714,74 @@ async def generate_job_closure_summary(
         tenant_id=str(current_user.tenant_id),
     )
     return decision
+
+
+@router.get("/closure-agent/results")
+def get_closure_agent_results(
+    current_user: AuthenticatedUser = Depends(
+        require_permission(Permission.JOBS_VIEW_ALL)
+    ),
+    db: Session = Depends(get_db),
+):
+    """Return persisted Closure Agent outcomes for the signed-in organization."""
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Super Admins can view Closure Agent results",
+        )
+
+    rows = (
+        db.query(JobClosure, Job)
+        .join(
+            Job,
+            (Job.id == JobClosure.job_id)
+            & (Job.tenant_id == JobClosure.tenant_id),
+        )
+        .filter(JobClosure.tenant_id == str(current_user.tenant_id))
+        .order_by(JobClosure.completed_at.desc(), JobClosure.id.desc())
+        .all()
+    )
+
+    results = []
+    for closure, job in rows:
+        report = closure.work_report if isinstance(closure.work_report, dict) else {}
+        decision_data = report.get("closure_agent")
+        if not isinstance(decision_data, dict):
+            continue
+        try:
+            decision = ClosureDecision.model_validate(decision_data)
+        except Exception:
+            logger.warning(
+                "Skipping invalid persisted closure decision",
+                extra={"closure_id": closure.id, "job_id": job.id},
+            )
+            continue
+
+        technician = None
+        if job.assigned_technician_id is not None:
+            technician = (
+                db.query(Technician)
+                .filter(
+                    Technician.tenant_id == str(current_user.tenant_id),
+                    Technician.technician_id == job.assigned_technician_id,
+                )
+                .first()
+            )
+
+        results.append(
+            {
+                "closure_id": closure.id,
+                "job_id": job.id,
+                "customer_name": job.customer_name,
+                "service_type": job.service_type,
+                "technician_name": technician.technician_name if technician else None,
+                "work_summary": closure.work_summary,
+                "follow_up_required": decision.follow_up_required,
+                "follow_up_reason": decision.follow_up_reason,
+                "completed_at": closure.completed_at.isoformat() if closure.completed_at else None,
+            }
+        )
+    return results
 
 @router.post(
     "/{job_id}/close",

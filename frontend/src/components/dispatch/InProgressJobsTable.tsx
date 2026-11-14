@@ -7,6 +7,7 @@ const PAGE_SIZE = 10;
 interface InProgressJob {
   id: string | number;
   customer_name?: string;
+  service_type?: string;
   issue_description?: string;
   location?: string;
   priority?: string;
@@ -174,47 +175,9 @@ export default function InProgressJobsTable({
         background: "#FFFFFF",
         border: "1px solid #E3ECE7",
         borderRadius: "12px",
+        boxShadow: "0 1px 4px rgba(47, 79, 62, 0.07)",
       }}
     >
-      <div
-        style={{
-          padding: "12px 16px",
-          borderBottom: "1px solid #E3ECE7",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
-        }}
-      >
-        <div>
-          <strong style={{ fontSize: "14px", color: "#1F2937" }}>
-            In Progress Jobs
-          </strong>
-          <div style={{ fontSize: "11px", color: "#64748B", marginTop: 3 }}>
-            Jobs where technicians have arrived and started work
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            setLoading(true);
-            void fetchJobs();
-          }}
-          style={{
-            padding: "7px 12px",
-            border: "1px solid #E3ECE7",
-            borderRadius: "7px",
-            background: "#FFFFFF",
-            color: "#2F4F3E",
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          Refresh
-        </button>
-      </div>
-
       <div
         style={{
           flex: 1,
@@ -225,7 +188,7 @@ export default function InProgressJobsTable({
         <table
           style={{
             width: "100%",
-            minWidth: "720px",
+            minWidth: "760px",
             borderCollapse: "collapse",
           }}
         >
@@ -233,21 +196,25 @@ export default function InProgressJobsTable({
             <tr style={{ background: "#F6FAF8" }}>
               {[
                 "Job ID",
-                "Customer",
-                "Technician",
-                "In Progress",
+                "Customer Name",
+                "Service Name",
+                "Technician Name",
                 "Priority",
-                "Actions",
+                "Status",
+                "Action",
               ].map((heading) => (
                 <th
                   key={heading}
                   style={{
-                    padding: "12px",
+                    padding: "4px 8px",
                     borderBottom: "1px solid #E3ECE7",
                     textAlign: "left",
                     whiteSpace: "nowrap",
-                    fontSize: "10px",
+                    fontSize: "9.5px",
+                    fontWeight: 700,
                     color: "#6B7280",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
                   }}
                 >
                   {heading}
@@ -260,9 +227,9 @@ export default function InProgressJobsTable({
             {error && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   style={{
-                    padding: "24px",
+                    padding: "8px",
                     color: "#B91C1C",
                     textAlign: "center",
                   }}
@@ -275,8 +242,8 @@ export default function InProgressJobsTable({
             {!error && loading && jobs.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
-                  style={{ padding: "24px", textAlign: "center" }}
+                  colSpan={7}
+                  style={{ padding: "8px", textAlign: "center", color: "#64748B", fontSize: "11.5px" }}
                 >
                   Loading in-progress jobs...
                 </td>
@@ -286,11 +253,12 @@ export default function InProgressJobsTable({
             {!error && !loading && jobs.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   style={{
-                    padding: "40px 20px",
+                    padding: "8px",
                     textAlign: "center",
                     color: "#64748B",
+                    fontSize: "11.5px",
                   }}
                 >
                   No in-progress jobs found.
@@ -312,7 +280,7 @@ export default function InProgressJobsTable({
                 >
                   <td
                     style={{
-                      padding: "12px",
+                      padding: "4px 8px",
                       color: "#5C9470",
                       fontWeight: 700,
                       fontSize: "11px",
@@ -321,62 +289,45 @@ export default function InProgressJobsTable({
                     #{job.id}
                   </td>
 
-                  <td style={{ padding: "12px", minWidth: "180px" }}>
+                  <td style={{ padding: "4px 8px", minWidth: "180px" }}>
                     <strong
-                      style={{ color: "#2F4F3E", fontSize: "12px" }}
+                      style={{ color: "#2F4F3E", fontSize: "11.5px" }}
                     >
                       {job.customer_name || "Unknown customer"}
                     </strong>
+                  </td>
 
-                    {job.issue_description && (
-                      <div
-                        style={{
-                          marginTop: "4px",
-                          color: "#6B7280",
-                          fontSize: "11px",
-                        }}
-                      >
-                        {job.issue_description}
-                      </div>
-                    )}
+                  <td style={{ padding: "4px 8px", fontSize: "11.5px" }}>
+                    {job.service_type || "—"}
                   </td>
 
                   <td
                     style={{
-                      padding: "12px",
-                      fontSize: "12px",
+                      padding: "4px 8px",
+                      fontSize: "11.5px",
                       fontWeight: 600,
                     }}
                   >
                     {technician?.technician_name ||
                       job.assigned_technician_name ||
-                      "Technician not found"}
+                      "Not Assigned"}
                   </td>
 
-                  <td style={{ padding: "12px" }}>
-                    <span
-                      style={{
-                        background: "#FFEDD5",
-                        color: "#C2410C",
-                        borderRadius: "20px",
-                        padding: "5px 10px",
-                        fontSize: "10px",
-                        fontWeight: 700,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      IN PROGRESS
-                    </span>
-                  </td>
-
-                  <td style={{ padding: "12px" }}>
+                  <td style={{ padding: "4px 8px" }}>
                     <span style={priorityStyle(job.priority)}>
                       {job.priority || "—"}
                     </span>
                   </td>
-                  <td style={{ padding: "12px", textAlign: "center" }}>
+
+                  <td style={{ padding: "4px 8px", fontSize: "11.5px" }}>
+                    <span style={{ fontWeight: 600 }}>
+                      {(job.status || "IN_PROGRESS").replace(/[\s_-]+/g, " ").toUpperCase()}
+                    </span>
+                  </td>
+                  <td style={{ padding: "4px 8px" }}>
   <button
     type="button"
+    className="icon-action-btn-style"
     title="View job details and status history"
     aria-label={`View job ${job.id} details`}
     onClick={(event) => {
@@ -385,18 +336,6 @@ export default function InProgressJobsTable({
         ...job,
         status: job.status || "IN_PROGRESS",
       });
-    }}
-    style={{
-      width: "32px",
-      height: "32px",
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      border: "1px solid #A7D9BF",
-      borderRadius: "8px",
-      background: "#FFFFFF",
-      color: "#059669",
-      cursor: "pointer",
     }}
   >
     <Eye size={16} />
@@ -411,23 +350,24 @@ export default function InProgressJobsTable({
 
       <div
         style={{
-          padding: "10px 14px",
+          padding: "8px",
           borderTop: "1px solid #E3ECE7",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           flexShrink: 0,
-          fontSize: "11px",
+          fontSize: "11.5px",
           color: "#64748B",
         }}
       >
         <span>
-          Page {page} of {totalPages} · {totalJobs} jobs
+          Page {page} of {totalPages} · {totalJobs} results
         </span>
 
         <div style={{ display: "flex", gap: "8px" }}>
           <button
             type="button"
+            className="planning-page-btn-style"
             disabled={page <= 1}
             onClick={() => setPage((current) => current - 1)}
           >
@@ -436,6 +376,7 @@ export default function InProgressJobsTable({
 
           <button
             type="button"
+            className="planning-page-btn-style"
             disabled={page >= totalPages}
             onClick={() => setPage((current) => current + 1)}
           >

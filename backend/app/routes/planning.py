@@ -36,6 +36,7 @@ def get_planned_assignments(
         Technician.technician_name.label("technician"),
         Technician.technician_skill.label("skill"),
         Job.customer_name.label("customer"),
+        Job.service_type,
         Job.location,
         Job.priority,
         Job.status,
@@ -48,6 +49,33 @@ def get_planned_assignments(
             Job.tenant_id == current_user.tenant_id,
             Technician.tenant_id == current_user.tenant_id
         )
+
+    # Keep the endpoint's result count aligned with the Planned Assignments
+    # tab. Assigned jobs in later stages (en route, in progress, completed,
+    # cancelled, or declined) belong in their own tabs and must not inflate
+    # this tab's badge or pagination total.
+    normalized_status = func.upper(
+        func.replace(
+            func.replace(
+                func.replace(Job.status, " ", ""),
+                "_",
+                "",
+            ),
+            "-",
+            "",
+        )
+    )
+    query = query.filter(
+        normalized_status.in_(
+            [
+                "ASSIGNED",
+                "WAITINGFORACCEPT",
+                "WAITINGFORACCEPTANCE",
+                "ACCEPTED",
+                "ACCEPTEDBYTECHNICIAN",
+            ]
+        )
+    )
         
     if search:
         search_pattern = f"%{search}%"

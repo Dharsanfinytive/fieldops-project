@@ -1021,6 +1021,7 @@ const assignmentDistanceDisplay = !isValidCustomerLocation
       upi_amount: pendingClosureData.upi_amount,
       gst_amount: pendingClosureData.gst_amount,
       total_amount: pendingClosureData.total_amount,
+      closure_decision: pendingClosureData.closure_decision,
       signature_data: signatureData,
     });
 

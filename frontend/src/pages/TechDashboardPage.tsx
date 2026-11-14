@@ -9,18 +9,19 @@ import {
   getAllTechnicians,
   createTechnician,
   updateTechnician,
-  deleteTechnician,
+  updateTechnicianAvailability,
   getUniqueZones,
 } from "../services/technicianService";
 import usePageVisibility from "../hooks/usePageVisibility";
 import useInterval from "../hooks/useInterval";
 import StatusBadge from "../components/ui/StatusBadge";
-import { Eye, Pencil, Trash2 } from "lucide-react";
+import { Eye, Pencil, UserMinus, RotateCcw, X } from "lucide-react";
 import EmptyState from "../components/ui/EmptyState";
 import { SkillComboSelect } from "../components/ui/SkillComboSelect";
+import ConfirmationDialog from "../components/ui/ConfirmationDialog";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
 import { getJobs } from "../services/planningService";
-import { BriefcaseBusiness, CircleCheck, Filter, PauseCircle, Play, RefreshCw, Search } from "lucide-react";
+import { BriefcaseBusiness, CircleCheck, PauseCircle, Play, Plus, Search } from "lucide-react";
 import technicianBanner from "../assets/technician-banner.png";
 
 const PAGE_SIZE = 8;
@@ -70,6 +71,7 @@ function normalizeStatus(s: string) {
   if (l === "on site" || l === "on_site") return "On Site";
   if (l === "on break" || l === "on_break") return "On Break";
   if (l === "suspended") return "Suspended";
+  if (l === "deactivated") return "Deactivated";
   return s || "Unknown";
 }
 
@@ -989,6 +991,25 @@ const localCss = `
   tr.tld-row-style:hover td {
     background-color: #EAF4EE !important;
   }
+  .tech-profile-technician-option {
+    transition: transform .16s ease, box-shadow .16s ease !important;
+  }
+  .tech-profile-technician-option:hover,
+  .tech-profile-technician-option:focus-visible {
+    transform: translateY(-2px) scale(1.01) !important;
+    box-shadow: 0 7px 16px rgba(25,75,51,.12) !important;
+    background-color: #eaf8ef !important;
+  }
+  .tech-list-card {
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease !important;
+  }
+  .tech-list-card:hover,
+  .tech-list-card:focus-within {
+    transform: translateY(-2px) scale(1.01) !important;
+    box-shadow: 0 7px 16px rgba(25,75,51,.12) !important;
+    border-color: #91c3a2 !important;
+    background-color: #eaf8ef !important;
+  }
   .icon-action-btn-style {
     transition: transform .15s, opacity .15s !important;
   }
@@ -1139,15 +1160,18 @@ const localCss = `
     .tech-profile-sidebar { width: auto !important; min-width: 0 !important; max-height: 230px; }
     .tech-profile-counts { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   }
+  @media (max-width: 1100px) {
+    .tech-profile-hero-details { margin-left: 0 !important; }
+  }
   @media (max-width: 560px) {
-    .tech-profile-hero { padding: 4px 8px !important; gap: 5px !important; flex-wrap: nowrap !important; min-height: 76px !important; }
+    .tech-profile-hero { padding: 4px 8px !important; gap: 5px !important; flex-wrap: nowrap !important; min-height: 84px !important; }
     .tech-profile-hero-avatar { width: 36px !important; height: 36px !important; font-size: 14px !important; border-width: 2px !important; }
     .tech-profile-hero-divider { display: block !important; max-height: 52px !important; }
     .tech-profile-hero > div:nth-child(3) { min-width: 0 !important; flex: 0 1 82px !important; }
     .tech-profile-hero h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px !important; margin-bottom: 3px !important; }
     .tech-profile-hero > div:nth-child(3) > div { gap: 4px !important; font-size: 7px !important; }
     .tech-profile-hero > div:nth-child(3) span:nth-child(2) { padding: 2px 4px !important; font-size: 7px !important; }
-    .tech-profile-hero-details { flex: 0 1 40% !important; max-width: none !important; min-width: 0 !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 4px 7px !important; padding: 5px 7px !important; border-radius: 8px !important; }
+    .tech-profile-hero-details { flex: 0 1 40% !important; max-width: none !important; min-width: 0 !important; margin-left: 0 !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 4px 7px !important; padding: 5px 7px !important; border-radius: 8px !important; }
     .tech-profile-hero-details strong { font-size: 7px !important; }
     .tech-profile-hero-details span { font-size: 6px !important; margin-bottom: 1px !important; }
   }
@@ -1263,7 +1287,11 @@ function MetricsPanel({ metrics, lastSuccessAt }: MetricsPanelProps) {
   );
 }
 
-export default function TechnicianListPage() {
+export default function TechnicianListPage({
+  onAddTechnician,
+}: {
+  onAddTechnician?: () => void;
+}) {
   const [technicians, setTechnicians] = useState<NormalizedTech[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetching, setFetching] = useState(false);
@@ -1282,12 +1310,15 @@ export default function TechnicianListPage() {
   const [uniqueZones, setUniqueZones] = useState<string[]>([]);
 
   const [selected, setSelected] = useState<NormalizedTech | null>(null);
+  const [techToDelete, setTechToDelete] = useState<NormalizedTech | null>(null);
+  const [deleteTechBusy, setDeleteTechBusy] = useState(false);
   const [assignedJobs, setAssignedJobs] = useState<any[]>([]);
   const [loadedJobsTechnicianId, setLoadedJobsTechnicianId] = useState<number | string | null>(null);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState("");
   const [jobStatusFilter, setJobStatusFilter] = useState("ALL");
   const [technicianSearch, setTechnicianSearch] = useState("");
+  const [showDeactivatedTechnicians, setShowDeactivatedTechnicians] = useState(false);
   const [profileTab, setProfileTab] = useState<"overview" | "jobs" | "activity">("jobs");
 
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -1508,7 +1539,9 @@ export default function TechnicianListPage() {
       try {
         const res = await getAllTechnicians({
           search: debSearch || undefined,
-          status: statusFilter !== "ALL" ? statusFilter : undefined,
+          status: showDeactivatedTechnicians
+            ? "DEACTIVATED"
+            : statusFilter !== "ALL" ? statusFilter : undefined,
           zone: zoneFilter !== "ALL" ? zoneFilter : undefined,
           skill: skillFilter !== "ALL" ? skillFilter : undefined,
           page: page,
@@ -1518,8 +1551,8 @@ export default function TechnicianListPage() {
           Array.isArray(res.data) ? res.data : []
         ).map(normTech);
         setSelected((current) => current
-          ? normalizedTechnicians.find((tech) => String(tech.id) === String(current.id)) || current
-          : normalizedTechnicians[0] || null);
+          ? normalizedTechnicians.find((tech) => String(tech.id) === String(current.id)) || null
+          : null);
         const techniciansWithCurrentWorkload = await Promise.all(
           normalizedTechnicians.map(async (tech) => {
             try {
@@ -1534,8 +1567,8 @@ export default function TechnicianListPage() {
         );
         setTechnicians(techniciansWithCurrentWorkload);
         setSelected((current) => current
-          ? techniciansWithCurrentWorkload.find((tech) => String(tech.id) === String(current.id)) || current
-          : techniciansWithCurrentWorkload[0] || null);
+          ? techniciansWithCurrentWorkload.find((tech) => String(tech.id) === String(current.id)) || null
+          : null);
         const totalHeader =
           res.headers["x-total-count"] || res.headers["X-Total-Count"];
         setTotalTechCount(
@@ -1569,7 +1602,7 @@ export default function TechnicianListPage() {
         else setLoading(false);
       }
     },
-    [debSearch, statusFilter, zoneFilter, skillFilter, page],
+    [debSearch, statusFilter, zoneFilter, skillFilter, page, showDeactivatedTechnicians],
   );
 
   useEffect(() => {
@@ -1641,9 +1674,8 @@ export default function TechnicianListPage() {
   const pageSlice = filtered;
   const visibleTechnicians = useMemo(
     () => pageSlice
-      .filter((tech) => `${tech.name} ${tech.skill} ${tech.location}`.toLowerCase().includes(technicianSearch.toLowerCase()))
-      .sort((a, b) => Number(String(b.id) === String(selected?.id)) - Number(String(a.id) === String(selected?.id))),
-    [pageSlice, technicianSearch, selected?.id],
+      .filter((tech) => `${tech.name} ${tech.skill} ${tech.location}`.toLowerCase().includes(technicianSearch.toLowerCase())),
+    [pageSlice, technicianSearch],
   );
 
   function handleSort(key: string) {
@@ -1693,18 +1725,39 @@ export default function TechnicianListPage() {
     setCountdown(0);
   }
 
-  async function handleDeleteTech(tech: NormalizedTech) {
-    if (!window.confirm(`Are you sure you want to delete "${tech.name}"?`))
-      return;
+  function handleDeleteTech(tech: NormalizedTech) {
+    setTechToDelete(tech);
+  }
+
+  async function confirmDeleteTech() {
+    if (!techToDelete) return;
+    const tech = techToDelete;
+    setDeleteTechBusy(true);
     try {
-      await deleteTechnician(tech.id);
-      showToast(`${tech.name} deleted successfully`);
+      await updateTechnicianAvailability(tech.id, "Deactivated");
+      showToast(`${tech.name} deactivated and moved to Deactivated Technicians`);
+      if (String(selected?.id) === String(tech.id)) closeSidebar();
+      setTechToDelete(null);
       fetchData(technicians.length > 0);
     } catch (err: any) {
       const msg =
         err.response?.data?.error ||
         err.response?.data?.detail ||
-        "Failed to delete technician.";
+        "Failed to deactivate technician.";
+      showToast(msg, "error");
+    } finally {
+      setDeleteTechBusy(false);
+    }
+  }
+
+  async function restoreTechnician(tech: NormalizedTech) {
+    try {
+      await updateTechnicianAvailability(tech.id, "Offline");
+      showToast(`${tech.name} reactivated with Offline status`);
+      if (String(selected?.id) === String(tech.id)) closeSidebar();
+      fetchData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || "Failed to reactivate technician.";
       showToast(msg, "error");
     }
   }
@@ -1825,7 +1878,7 @@ export default function TechnicianListPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 7, margin: "12px 0", padding: "0 9px", border: "1px solid #dbe7e1", borderRadius: 9 }}><Search size={14} color="#58806c" /><input value={technicianSearch} onChange={(e) => setTechnicianSearch(e.target.value)} placeholder="Search technicians…" style={{ border: 0, outline: 0, padding: "8px 0", width: "100%", background: "transparent", fontSize: 13 }} /></div>
             <div style={{ overflowY: "auto", display: "grid", alignContent: "start", gap: 8 }}>
               {visibleTechnicians.map((tech) => (
-                <button key={tech.id} onClick={() => openSidebar(tech)} style={{ display: "flex", alignItems: "center", gap: 9, textAlign: "left", padding: 9, border: `1px solid ${String(tech.id) === String(selected.id) ? "#13804c" : "#e3ece7"}`, borderRadius: 11, background: String(tech.id) === String(selected.id) ? "#eff9f3" : "#fff", cursor: "pointer" }}>
+                <button key={tech.id} className="tech-profile-technician-option" onClick={() => openSidebar(tech)} style={{ display: "flex", alignItems: "center", gap: 9, textAlign: "left", padding: 9, border: `1px solid ${String(tech.id) === String(selected.id) ? "#13804c" : "#e3ece7"}`, borderRadius: 11, background: String(tech.id) === String(selected.id) ? "#eff9f3" : "#fff", cursor: "pointer" }}>
                   <span style={{ width: 36, height: 36, flexShrink: 0, borderRadius: 10, display: "grid", placeItems: "center", background: "linear-gradient(145deg,#77bb83,#17633d)", color: "white", fontSize: 13, fontWeight: 800 }}>{getInitials(tech.name)}</span>
                   <span style={{ minWidth: 0, flex: 1 }}><strong style={{ display: "block", color: "#183b2d", fontSize: 14 }}>{tech.name}</strong><small style={{ display: "block", color: "#64748b", marginTop: 2, fontSize: 11 }}>{tech.skill}</small><span style={{ display: "block", marginTop: 4 }}><small style={{ color: "#64748b", marginRight: 6, fontSize: 11 }}>{normalizeStatus(tech.status)}</small><span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 999, background: "#d8f3e3", color: "#075b36", fontSize: 10, fontWeight: 800, lineHeight: 1.3 }}>Workload {Math.min(String(tech.id) === String(selected.id) ? acceptedOpenJobs : tech.currentJobs, 5)}/5</span></span></span>
                   <span style={{ width: 8, height: 8, flexShrink: 0, borderRadius: "50%", background: /online|available|busy|assigned/i.test(tech.status) ? "#16a34a" : "#94a3b8" }} />
@@ -1836,26 +1889,22 @@ export default function TechnicianListPage() {
           </aside>
 
           <article style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", background: "#fff", border: "1px solid #dce9e2", borderRadius: 18, overflow: "hidden", boxShadow: "0 8px 24px rgba(25,75,51,.06)" }}>
-            <div className="tech-profile-hero" style={{ position: "relative", overflow: "hidden", padding: "7px 12px", minHeight: 112, display: "flex", alignItems: "center", gap: 9, color: "white", backgroundImage: `url(${technicianBanner})`, backgroundSize: "cover", backgroundPosition: "center center", backgroundRepeat: "no-repeat" }}>
+            <div className="tech-profile-hero" style={{ position: "relative", overflow: "hidden", padding: "7px 12px", height: 150, minHeight: 150, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, color: "white", backgroundImage: `url(${technicianBanner})`, backgroundSize: "107% auto", backgroundPosition: "left center", backgroundRepeat: "no-repeat" }}>
+              <button type="button" onClick={closeSidebar} aria-label="Back to technician list" title="Back to technician list" style={{ position: "absolute", top: 9, right: 10, zIndex: 3, width: 30, height: 30, display: "grid", placeItems: "center", border: "1px solid rgba(255,255,255,.58)", borderRadius: "50%", background: "rgba(0,45,27,.72)", color: "#fff", cursor: "pointer" }}>
+                <X size={17} />
+              </button>
               <div className="tech-profile-hero-avatar" style={{ width: 50, height: 50, flexShrink: 0, borderRadius: "50%", display: "grid", placeItems: "center", border: "2px solid rgba(255,255,255,.92)", background: "rgba(220,255,226,.22)", color: "#f3fff5", fontSize: 17, fontWeight: 800 }}>{getInitials(selected.name)}</div>
               <div className="tech-profile-hero-divider" style={{ width: 1, alignSelf: "stretch", maxHeight: 70, background: "rgba(255,255,255,.5)" }} />
               <div style={{ position: "relative", zIndex: 1, minWidth: 0, flex: "0 1 155px" }}><h1 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 750 }}>{selected.name}</h1><div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 11 }}><span>Technician</span><span style={{ padding: "3px 7px", color: "#075b36", background: "#e7fff0", borderRadius: 24, fontSize: 9, fontWeight: 700 }}>● {normalizeStatus(selected.status)}</span></div></div>
-              <div className="tech-profile-hero-details" style={{ position: "relative", zIndex: 1, flex: "0 1 40%", maxWidth: 470, minWidth: 0, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "7px 12px", padding: "9px 12px", border: "1px solid rgba(215,255,228,.24)", borderRadius: 9, background: "rgba(0,42,25,.64)", backdropFilter: "blur(5px)", boxShadow: "0 5px 14px rgba(0,0,0,.16)" }}>
+              <div className="tech-profile-hero-details" style={{ position: "relative", zIndex: 1, flex: "0 1 43%", maxWidth: 520, minWidth: 0, marginLeft: 0, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "9px 14px", padding: "11px 14px", border: "1px solid rgba(215,255,228,.24)", borderRadius: 9, background: "rgba(0,42,25,.64)", backdropFilter: "blur(5px)", boxShadow: "0 5px 14px rgba(0,0,0,.16)" }}>
                 {[
                   ["Phone", selected.phone || "—"],
                   ["Email", selected.email || "—"],
                   ["Skills", selected.skill || "—"],
                   ["Workload", `${Math.min(acceptedOpenJobs, 5)}/5`],
-                ].map(([label, value]) => <div key={label} style={{ minWidth: 0 }}><span style={{ display: "block", marginBottom: 2, color: "#b8e8cb", fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</span><strong title={value} style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#fff", fontSize: 9, fontWeight: 650, lineHeight: 1.15 }}>{value}</strong></div>)}
+                ].map(([label, value]) => <div key={label} style={{ minWidth: 0 }}><span style={{ display: "block", marginBottom: 2, color: "#b8e8cb", fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</span><strong title={value} style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#fff", fontSize: 10, fontWeight: 650, lineHeight: 1.15 }}>{value}</strong></div>)}
               </div>
             </div>
-            <nav style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 14px", borderBottom: "1px solid #e5eee9", minHeight: 44 }}>
-              {([ ["overview", "Overview"], ["jobs", `Jobs (${jobCounts.all})`], ["activity", "Activity"] ] as const).map(([tab, label]) => <button key={tab} onClick={() => setProfileTab(tab)} style={{ height: 44, padding: "0 10px", border: 0, borderBottom: profileTab === tab ? "2px solid #13804c" : "2px solid transparent", background: "transparent", color: profileTab === tab ? "#087244" : "#526276", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{label}</button>)}
-              <span style={{ marginLeft: "auto", color: "#64748b", fontSize: 11 }}>Updated {formatAgo(selected.lastPing)}</span>
-              <button title="Refresh technician jobs" onClick={() => fetchAssignedJobs(false)} style={{ border: "1px solid #dce9e2", background: "white", borderRadius: 8, padding: 6, cursor: "pointer", color: "#166534" }}><RefreshCw size={14} /></button>
-              <button title="Edit technician" onClick={() => handleEditTech(selected)} style={{ border: "1px solid #dce9e2", background: "white", borderRadius: 8, padding: 6, cursor: "pointer", color: "#166534" }}><Pencil size={14} /></button>
-              <button title="Delete technician" onClick={() => handleDeleteTech(selected)} style={{ border: "1px solid #fee2e2", background: "white", borderRadius: 8, padding: 6, cursor: "pointer", color: "#dc2626" }}><Trash2 size={14} /></button>
-            </nav>
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 12 }}>
               <div className="tech-profile-counts" style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(120px,1fr))", gap: 8, marginBottom: 12 }}>
                 {[
@@ -1870,7 +1919,6 @@ export default function TechnicianListPage() {
                 <button onClick={() => setProfileTab("jobs")} style={{ marginTop: 16, border: 0, borderRadius: 10, background: "#087244", color: "white", padding: "11px 16px", fontWeight: 700, cursor: "pointer" }}><BriefcaseBusiness size={15} style={{ verticalAlign: "-3px", marginRight: 7 }} />View all {jobCounts.all} assigned jobs</button>
               </>}
               {profileTab === "jobs" && <>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}><div style={{ flex: 1 }}><h2 style={{ margin: 0, fontSize: 18, color: "#14251f" }}>{jobStatusFilter === "COMPLETED_ONLY" ? "Completed Jobs" : jobStatusFilter === "ACTIVE_ONLY" ? "Active Jobs" : jobStatusFilter === "ONHOLD_ONLY" ? "On Hold Jobs" : `All Jobs Assigned to ${selected.name}`}</h2></div><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #d5e1dc", borderRadius: 8, padding: "6px 9px", color: "#334155", background: "white" }}><Filter size={15} /><select aria-label="Filter jobs by status" value={jobStatusFilter} onChange={(e) => setJobStatusFilter(e.target.value)} style={{ border: 0, outline: 0, background: "transparent", fontSize: 12 }}><option value="ALL">All statuses</option><option value="ACTIVE_ONLY">Active jobs</option><option value="COMPLETED_ONLY">Completed jobs</option><option value="ONHOLD_ONLY">On hold jobs</option>{[...new Set(assignedJobs.map((job) => normalizedJobStatus(job.status)))].sort().map((status) => <option key={status} value={status}>{displayJobStatus(status)}</option>)}</select></label></div>
                 {jobsError && <div style={{ marginBottom: 12, padding: 12, background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 9, color: "#9a3412" }}>{jobsError} <button onClick={() => fetchAssignedJobs(false)} style={{ marginLeft: 8, cursor: "pointer" }}>Retry</button></div>}
                 {jobsLoading && assignedJobs.length === 0 ? <LoadingSpinner message="Loading assigned jobs…" /> : visibleJobs.length === 0 ? <div style={{ padding: 28, textAlign: "center", color: "#64748b" }}>{assignedJobs.length ? "No jobs match this status." : "No jobs are assigned to this technician."}</div> : <div style={{ overflowX: "auto", border: "1px solid #e4ede8", borderRadius: 10 }}><table style={{ width: "100%", minWidth: 820, borderCollapse: "collapse", fontSize: 12 }}><thead><tr style={{ background: "#f1f4f7", color: "#25323d", textAlign: "left" }}>{["Job", "Customer / Location", "Service", "Priority", "Status", "Updated"].map((heading) => <th key={heading} style={{ padding: "10px 10px", whiteSpace: "nowrap", borderBottom: "1px solid #e4ede8" }}>{heading}</th>)}</tr></thead><tbody>{visibleJobs.map((job, index) => <tr key={job.job_id ?? job.id ?? `${job.customer_name}-${index}`} style={{ borderBottom: "1px solid #edf2ef" }}><td style={{ padding: 10, minWidth: 180 }}><strong style={{ display: "block", color: "#087348", fontSize: 14 }}>#{job.job_id ?? job.id ?? "—"}</strong><span style={{ display: "block", color: "#465463", marginTop: 3, maxWidth: 240 }}>{job.issue_description || "—"}</span></td><td style={{ padding: 10, minWidth: 170 }}><strong style={{ display: "block" }}>{job.customer_name || "—"}</strong><span style={{ display: "block", color: "#64748b", marginTop: 3, maxWidth: 240 }}>{job.location || "—"}</span></td><td style={{ padding: 10, whiteSpace: "nowrap" }}>{job.service_type || job.required_skill || "—"}</td><td style={{ padding: 10, whiteSpace: "nowrap" }}><span style={{ display: "inline-block", padding: "4px 8px", borderRadius: 18, background: /critical|high|p1|p2/i.test(job.priority) ? "#fff0f0" : /medium|p3/i.test(job.priority) ? "#fff6e5" : "#eaf8ef", color: /critical|high|p1|p2/i.test(job.priority) ? "#b42318" : /medium|p3/i.test(job.priority) ? "#9a6700" : "#087244", fontWeight: 700 }}>{displayJobStatus(job.priority || "—")}</span></td><td style={{ padding: 10, whiteSpace: "nowrap" }}><span style={{ display: "inline-block", padding: "4px 8px", borderRadius: 18, background: /complete|closed/i.test(job.status) ? "#e8f8ee" : /hold|paused/i.test(job.status) ? "#fff5df" : /cancel|reject/i.test(job.status) ? "#fff0f0" : "#edf4ff", color: /complete|closed/i.test(job.status) ? "#087244" : /hold|paused/i.test(job.status) ? "#9a6700" : /cancel|reject/i.test(job.status) ? "#b42318" : "#245ca6", fontWeight: 700 }}>{displayJobStatus(job.status)}</span></td><td style={{ padding: 10, minWidth: 130, whiteSpace: "nowrap" }}>{formatJobDate(job.updated_at || job.completed_at || job.closed_at || job.created_at)}<small style={{ display: "block", color: "#64748b", marginTop: 3 }}>Scheduled: {formatJobDate(job.preferred_service_date)}</small></td></tr>)}</tbody></table></div>}
                 <p style={{ color: "#64748b", fontSize: 11, margin: "12px 0 0" }}>Showing {visibleJobs.length} of {assignedJobs.length} assigned jobs · refreshes automatically while this page is open.</p>
@@ -1881,6 +1929,62 @@ export default function TechnicianListPage() {
         </section>
       )}
 
+      {!selected && !loading && (
+        <section style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 20, background: "#fff", border: "1px solid #dce9e2", borderRadius: 18, boxShadow: "0 8px 24px rgba(25,75,51,.06)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+            <div>
+              <h1 style={{ margin: 0, color: "#183b2d", fontSize: 21 }}>{showDeactivatedTechnicians ? "Deactivated Technicians" : "Technicians"} ({totalTechCount})</h1>
+              <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>{showDeactivatedTechnicians ? "These technicians are inactive and can be reactivated." : "Select a technician to view assigned jobs"}</p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button type="button" onClick={() => { setShowDeactivatedTechnicians((current) => !current); clearFilters(); setTechnicianSearch(""); }} style={{ minHeight: 36, padding: "0 12px", border: "1px solid #dce9e2", borderRadius: 9, background: showDeactivatedTechnicians ? "#e9f5ed" : "#fff", color: "#315840", fontWeight: 700, cursor: "pointer" }}>{showDeactivatedTechnicians ? "Active Technicians" : "Deactivated Technicians"}</button>
+              <button type="button" onClick={onAddTechnician || openAddForm} style={{ minHeight: 36, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 13px", border: 0, borderRadius: 9, background: "#087244", color: "#fff", fontWeight: 700, cursor: "pointer" }}><Plus size={15} /> Add Technician</button>
+            </div>
+          </div>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8, maxWidth: 420, marginBottom: 16, padding: "0 11px", border: "1px solid #dbe7e1", borderRadius: 9, background: "#fff" }}>
+            <Search size={15} color="#58806c" />
+            <input value={technicianSearch} onChange={(event) => setTechnicianSearch(event.target.value)} placeholder="Search technicians…" aria-label="Search technicians" style={{ width: "100%", height: 38, border: 0, outline: 0, background: "transparent", fontSize: 13 }} />
+          </label>
+
+          {visibleTechnicians.length === 0 ? (
+            <div style={{ padding: 28, textAlign: "center", color: "#64748b" }}>No technicians match this search.</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 270px), 1fr))", gap: 12, alignItems: "start" }}>
+              {visibleTechnicians.map((tech) => (
+                <article key={tech.id} className="tech-list-card" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, padding: 12, border: "1px solid #e3ece7", borderRadius: 12, background: "#fff" }}>
+                  <button type="button" onClick={() => openSidebar(tech)} title={`View ${tech.name}`} style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0, padding: 0, border: 0, background: "transparent", textAlign: "left", cursor: "pointer" }}>
+                    <span style={{ width: 42, height: 42, flexShrink: 0, borderRadius: 11, display: "grid", placeItems: "center", background: "linear-gradient(145deg,#77bb83,#17633d)", color: "white", fontSize: 14, fontWeight: 800 }}>{getInitials(tech.name)}</span>
+                    <span style={{ display: "block", minWidth: 0, flex: 1 }}>
+                      <strong style={{ display: "block", color: "#183b2d", fontSize: 14 }}>{tech.name}</strong>
+                      <span style={{ display: "block", overflow: "hidden", marginTop: 3, color: "#64748b", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tech.skill || "No skill listed"}</span>
+                      <span style={{ display: "block", overflow: "hidden", marginTop: 2, color: "#64748b", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tech.location || "Location not listed"}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 7 }}><small style={{ color: "#64748b", fontSize: 10 }}>{normalizeStatus(tech.status)}</small><small style={{ padding: "2px 7px", borderRadius: 999, background: "#d8f3e3", color: "#075b36", fontSize: 10, fontWeight: 800 }}>Workload {Math.min(tech.currentJobs, 5)}/5</small></span>
+                    </span>
+                  </button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {showDeactivatedTechnicians ? (
+                      <button type="button" onClick={() => void restoreTechnician(tech)} title={`Reactivate ${tech.name}`} aria-label={`Reactivate ${tech.name}`} style={{ width: 30, height: 30, display: "grid", placeItems: "center", border: "1px solid #d5ecdd", borderRadius: 8, background: "#fff", color: "#087244", cursor: "pointer" }}><RotateCcw size={14} /></button>
+                    ) : <>
+                      <button type="button" onClick={() => handleEditTech(tech)} title={`Edit ${tech.name}`} aria-label={`Edit ${tech.name}`} style={{ width: 30, height: 30, display: "grid", placeItems: "center", border: "1px solid #e3ece7", borderRadius: 8, background: "#fff", color: "#a16a08", cursor: "pointer" }}><Pencil size={14} /></button>
+                      <button type="button" onClick={() => handleDeleteTech(tech)} title={`Deactivate ${tech.name}`} aria-label={`Deactivate ${tech.name}`} style={{ width: 30, height: 30, display: "grid", placeItems: "center", border: "1px solid #fee2e2", borderRadius: 8, background: "#fff", color: "#dc2626", cursor: "pointer" }}><UserMinus size={14} /></button>
+                    </>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 18 }}>
+              <button type="button" disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} style={{ minHeight: 34, padding: "0 12px", border: "1px solid #dce9e2", borderRadius: 8, background: "#fff", color: "#315840", cursor: safePage <= 1 ? "not-allowed" : "pointer", opacity: safePage <= 1 ? 0.55 : 1 }}>Previous</button>
+              <span style={{ color: "#64748b", fontSize: 12 }}>Page {safePage} of {totalPages}</span>
+              <button type="button" disabled={safePage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} style={{ minHeight: 34, padding: "0 12px", border: "1px solid #dce9e2", borderRadius: 8, background: "#fff", color: "#315840", cursor: safePage >= totalPages ? "not-allowed" : "pointer", opacity: safePage >= totalPages ? 0.55 : 1 }}>Next</button>
+            </div>
+          )}
+        </section>
+      )}
+
       {!selected && loading && (
         <section style={{ flex: 1, minHeight: 0, display: "grid", placeItems: "center", background: "#fff", border: "1px solid #dce9e2", borderRadius: 18 }}>
           <LoadingSpinner message="Loading technicians…" />
@@ -1888,7 +1992,7 @@ export default function TechnicianListPage() {
       )}
 
       {/* Table Card */}
-      <div style={{ ...styles.tldTableCard, display: selected || loading ? "none" : undefined }}>
+      <div style={{ ...styles.tldTableCard, display: "none" }}>
         <div className="tld-header-responsive" style={styles.tldCardHeader}>
           <div>
             <span style={styles.tldSectionBadge}>Dashboard</span>
@@ -2271,6 +2375,17 @@ export default function TechnicianListPage() {
                           style={styles.tldActions}
                           onClick={(e) => e.stopPropagation()}
                         >
+                          {showDeactivatedTechnicians ? (
+                            <button
+                              className="icon-action-btn-style"
+                              style={{ ...styles.iconActionBtn, color: "#16a34a" }}
+                              onClick={() => void restoreTechnician(tech)}
+                              title="Reactivate technician"
+                              aria-label="Reactivate technician"
+                            >
+                              <RotateCcw size={15} />
+                            </button>
+                          ) : <>
                           <button
                             className="icon-action-btn-style"
                             style={{
@@ -2302,11 +2417,12 @@ export default function TechnicianListPage() {
                               color: "#dc2626",
                             }}
                             onClick={() => handleDeleteTech(tech)}
-                            title="Delete technician"
-                            aria-label="Delete technician"
+                            title="Deactivate technician"
+                            aria-label="Deactivate technician"
                           >
-                            <Trash2 size={15} />
+                            <UserMinus size={15} />
                           </button>
+                          </>}
                         </div>
                       </td>
                     </tr>
@@ -2677,6 +2793,16 @@ export default function TechnicianListPage() {
           </div>
         </form>
       </div>
+      <ConfirmationDialog
+        open={techToDelete !== null}
+        title="Deactivate technician?"
+        message={techToDelete ? `Deactivate “${techToDelete.name}”? Their record and job history will be kept. You can reactivate them from Deactivated Technicians.` : ""}
+        confirmLabel="Deactivate"
+        busyLabel="Deactivating…"
+        busy={deleteTechBusy}
+        onConfirm={confirmDeleteTech}
+        onCancel={() => setTechToDelete(null)}
+      />
     </div>
   );
 }

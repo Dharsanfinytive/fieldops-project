@@ -3039,6 +3039,21 @@ async def complete_job(
     except Exception:
         request_payload = {}
 
+    closure_agent_decision = None
+    raw_closure_decision = request_payload.get("closure_decision")
+    if raw_closure_decision is not None:
+        from app.services.ai.FieldOpsAI.schemas.closure import ClosureDecision
+
+        try:
+            closure_agent_decision = ClosureDecision.model_validate(
+                raw_closure_decision
+            ).model_dump(mode="json")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid closure agent decision",
+            ) from exc
+
     signature_data = request_payload.get("signature_data")
     if (
         not isinstance(signature_data, str)
@@ -3218,6 +3233,7 @@ async def complete_job(
                 "summary": data.completion_notes or "Job completed",
                 "parts_used": [],
                 "duration_minutes": None,
+                "closure_agent": closure_agent_decision,
                 "payment": {
                     "method": payment_method,
                     "provider": payment_provider if payment_method != "CASH" else None,
@@ -3261,6 +3277,7 @@ async def complete_job(
             "summary": data.completion_notes or "Job completed",
             "parts_used": [],
             "duration_minutes": None,
+            "closure_agent": closure_agent_decision,
             "payment": {
                 "method": payment_method,
                 "provider": payment_provider if payment_method != "CASH" else None,

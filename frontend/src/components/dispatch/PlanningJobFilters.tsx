@@ -1,19 +1,9 @@
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { getAdminServices } from "../../services/servicesCatalogService";
 import {
-  Search,
-  MapPin,
   Filter,
   RotateCcw,
-  Grid2X2,
-  Snowflake,
-  Zap,
-  Droplet,
-  Wifi,
-  Wrench,
-  Briefcase,
-  Hammer,
-  ShieldCheck,
   Layers,
   CircleMinus,
   UserRound,
@@ -47,10 +37,9 @@ interface TechnicianOption {
 }
 
 interface PlanningJobFiltersProps {
+  activeTab?: string;
   technicians?: TechnicianOption[];
-  resultCount?: number;
   onFiltersChange?: (filters: PlanningJobFilterValues) => void;
-  onRefresh?: () => void;
 }
 
 const initialFilters: PlanningJobFilterValues = {
@@ -65,8 +54,8 @@ const initialFilters: PlanningJobFilterValues = {
 
 const inputStyle = {
   width: "100%",
-  height: "39px",
-  padding: "0 12px",
+  height: "35px",
+  padding: "0 11px",
   border: "1px solid #DDE7E1",
   borderRadius: "9px",
   background: "#FFFFFF",
@@ -78,7 +67,7 @@ const inputStyle = {
 
 const labelStyle = {
   display: "block",
-  marginBottom: "8px",
+  marginBottom: "6px",
   color: "#405749",
   fontSize: "12px",
   fontWeight: 700,
@@ -89,7 +78,7 @@ const labelStyle = {
 const groupStyle = {
   display: "flex",
   flexWrap: "wrap" as const,
-  gap: "8px",
+  gap: "6px",
   alignItems: "center",
 };
 
@@ -182,16 +171,16 @@ const pillStyle = (
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  gap: "7px",
-  minHeight: "37px",
-  padding: "7px 13px",
+  gap: "6px",
+  minHeight: "33px",
+  padding: "5px 10px",
   border: `1px solid ${
     selected ? tone.active : tone.border
   }`,
   borderRadius: "999px",
   background: selected ? tone.active : tone.bg,
   color: selected ? "#FFFFFF" : tone.text,
-  fontSize: "12px",
+  fontSize: "11px",
   fontWeight: 700,
   whiteSpace: "nowrap" as const,
   cursor: "pointer",
@@ -202,13 +191,44 @@ const pillStyle = (
 });
 
 export default function PlanningJobFilters({
+  activeTab = "total",
   technicians = [],
-  resultCount = 0,
   onFiltersChange,
-  onRefresh,
 }: PlanningJobFiltersProps) {
   const [filters, setFilters] =
     useState<PlanningJobFilterValues>(initialFilters);
+  const [services, setServices] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAdminServices()
+      .then((items) => {
+        if (cancelled) return;
+        const names = Array.from(new Set(
+          (Array.isArray(items) ? items : [])
+            .map((item) => item?.service_type?.trim())
+            .filter((name): name is string => Boolean(name)),
+        )).sort((a, b) => a.localeCompare(b));
+        setServices(names);
+      })
+      .catch((error) => console.warn("Failed to load planning service options", error));
+    return () => { cancelled = true; };
+  }, []);
+
+  const hideStatusFilter = ["dispatch", "inprogress", "completed"].includes(activeTab);
+  const plannedStatusOptions = activeTab === "planned";
+
+  useEffect(() => {
+    const statusIsUnsupported = hideStatusFilter
+      ? filters.status !== "ALL"
+      : plannedStatusOptions && !["ALL", "UNASSIGNED", "ASSIGNED"].includes(filters.status);
+
+    if (statusIsUnsupported) {
+      const next = { ...filters, status: "ALL" };
+      setFilters(next);
+      onFiltersChange?.(next);
+    }
+  }, [activeTab, filters, hideStatusFilter, onFiltersChange, plannedStatusOptions]);
 
   const updateFilter = (
     key: keyof PlanningJobFilterValues,
@@ -216,6 +236,7 @@ export default function PlanningJobFilters({
   ) => {
     const next = { ...filters, [key]: value };
     setFilters(next);
+    onFiltersChange?.(next);
   };
 
   const clearFilters = () => {
@@ -281,7 +302,7 @@ export default function PlanningJobFilters({
         background: "#FFFFFF",
         border: "1px solid #E0EAE4",
         borderRadius: "15px",
-        padding: "15px 18px 13px",
+        padding: "12px 16px 10px",
         marginBottom: "4px",
         boxShadow: "0 3px 12px rgba(36, 73, 51, 0.045)",
       }}
@@ -292,8 +313,8 @@ export default function PlanningJobFilters({
           alignItems: "center",
           justifyContent: "space-between",
           gap: "12px",
-          paddingBottom: "12px",
-          marginBottom: "14px",
+          paddingBottom: "9px",
+          marginBottom: "10px",
           borderBottom: "1px solid #E7EEE9",
         }}
       >
@@ -306,8 +327,8 @@ export default function PlanningJobFilters({
         >
           <div
             style={{
-              width: "36px",
-              height: "36px",
+              width: "33px",
+              height: "33px",
               borderRadius: "10px",
               background: "#E5F4EA",
               color: "#16864E",
@@ -343,10 +364,16 @@ export default function PlanningJobFilters({
 
         <button
           type="button"
-          onClick={onRefresh}
+          onClick={clearFilters}
           style={{
-            minHeight: "36px",
-            padding: "0 15px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+            minHeight: "33px",
+            minWidth: "82px",
+            flexShrink: 0,
+            padding: "0 12px",
             border: "1px solid #DDE8E0",
             borderRadius: "9px",
             background: "#FFFFFF",
@@ -357,71 +384,20 @@ export default function PlanningJobFilters({
             whiteSpace: "nowrap",
           }}
         >
-          ↻ Refresh
+          <RotateCcw size={14} />
+          Clear
         </button>
       </div>
 
-      {/* Top row: Search, Location, Technician */}
+      {/* Technician filter */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1.2fr 1fr 1.8fr",
-          gap: "16px",
-          marginBottom: "18px",
+          gridTemplateColumns: "repeat(2, minmax(220px, 1fr))",
+          gap: "10px",
+          marginBottom: "12px",
         }}
       >
-        {field(
-          "Search",
-          "search",
-          <div style={{ position: "relative" }}>
-            <Search
-              size={17}
-              color="#718477"
-              style={{
-                position: "absolute",
-                left: "12px",
-                top: "11px",
-              }}
-            />
-            <input
-              id="planning-filter-search"
-              aria-label="Search jobs"
-              placeholder="Search name, location..."
-              value={filters.search}
-              onChange={(event) =>
-                updateFilter("search", event.target.value)
-              }
-              style={{ ...inputStyle, paddingLeft: "37px" }}
-            />
-          </div>,
-        )}
-
-        {field(
-          "Location",
-          "location",
-          <div style={{ position: "relative" }}>
-            <MapPin
-              size={17}
-              color="#718477"
-              style={{
-                position: "absolute",
-                left: "12px",
-                top: "11px",
-              }}
-            />
-            <input
-              id="planning-filter-location"
-              aria-label="Filter jobs by location"
-              placeholder="Search location..."
-              value={filters.location}
-              onChange={(event) =>
-                updateFilter("location", event.target.value)
-              }
-              style={{ ...inputStyle, paddingLeft: "37px" }}
-            />
-          </div>,
-        )}
-
         {field(
           "Technician",
           "technician",
@@ -445,83 +421,46 @@ export default function PlanningJobFilters({
             ))}
           </select>,
         )}
-      </div>
-
-      {/* Service buttons */}
-      <div
-        style={{
-          padding: "0 0 15px",
-          marginBottom: "15px",
-          borderBottom: "1px solid #E7EEE9",
-        }}
-      >
-          {renderPills("Service", "serviceType", [
-          {
-            label: "All Services",
-            value: "ALL",
-            tone: filterTones.green,
-            icon: Grid2X2,
-          },
-          {
-            label: "HVAC Repair",
-            value: "HVAC_REPAIR",
-            tone: filterTones.sky,
-            icon: Snowflake,
-          },
-          {
-            label: "Electrical Service",
-            value: "ELECTRICAL_SERVICE",
-            tone: filterTones.amber,
-            icon: Zap,
-          },
-          {
-            label: "Plumbing Service",
-            value: "PLUMBING_SERVICE",
-            tone: filterTones.blue,
-            icon: Droplet,
-          },
-          {
-            label: "Network Support",
-            value: "NETWORK_SUPPORT",
-            tone: filterTones.purple,
-            icon: Wifi,
-          },
-          {
-            label: "General Maintenance",
-            value: "GENERAL_MAINTENANCE",
-            tone: filterTones.indigo,
-            icon: Wrench,
-          },
-          {
-            label: "Appliance Repair",
-            value: "APPLIANCE_REPAIR",
-            tone: filterTones.pink,
-            icon: Briefcase,
-          },
-          {
-            label: "Roofing & Carpentry",
-            value: "ROOFING_CARPENTRY",
-            tone: filterTones.orange,
-            icon: Hammer,
-          },
-          {
-            label: "CCTV & Security",
-            value: "CCTV_SECURITY",
-            tone: filterTones.teal,
-            icon: ShieldCheck,
-          },
-        ])}
+        {field(
+          "Service",
+          "serviceType",
+          <select
+            id="planning-filter-serviceType"
+            aria-label="Filter jobs by service"
+            value={filters.serviceType}
+            onChange={(event) => updateFilter("serviceType", event.target.value)}
+            style={inputStyle}
+          >
+            <option value="ALL">All Services</option>
+            {services.map((service) => (
+              <option key={service} value={service}>{service}</option>
+            ))}
+          </select>,
+        )}
       </div>
 
       {/* Status buttons */}
-      <div
+      {!hideStatusFilter && <div
         style={{
-          paddingBottom: "15px",
-          marginBottom: "15px",
+          paddingBottom: "10px",
+          marginBottom: "11px",
           borderBottom: "1px solid #E7EEE9",
         }}
       >
-                {renderPills("Status", "status", [
+                {renderPills("Status", "status", plannedStatusOptions ? [
+          {
+            label: "Unassigned",
+            value: "UNASSIGNED",
+            tone: filterTones.slate,
+            icon: CircleMinus,
+          },
+          {
+            label: "Assigned",
+            value: "ASSIGNED",
+            tone: filterTones.blue,
+            icon: UserRound,
+          },
+        ] : [
           {
             label: "All Statuses",
             value: "ALL",
@@ -565,14 +504,14 @@ export default function PlanningJobFilters({
             icon: CircleX,
           },
         ])}
-      </div>
+      </div>}
 
       {/* Priority and SLA: bottom row */}
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1.3fr",
-          gap: "20px",
+          gap: "16px",
         }}
       >
           {renderPills("Priority", "priority", [
@@ -636,72 +575,6 @@ export default function PlanningJobFilters({
         ])}
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: "10px",
-          marginTop: "17px",
-        }}
-      >
-        <span
-          style={{
-            color: "#65766A",
-            fontSize: "12px",
-          }}
-        >
-          Showing {resultCount} job{resultCount === 1 ? "" : "s"} found
-        </span>
-
-        <div style={{ display: "flex", gap: "9px" }}>
-          <button
-            type="button"
-            onClick={clearFilters}
-            style={{
-              minHeight: "39px",
-              padding: "0 17px",
-              border: "1px solid #DDE7E1",
-              borderRadius: "9px",
-              background: "#FFFFFF",
-              color: "#425649",
-              fontSize: "12px",
-              fontWeight: 700,
-              cursor: "pointer",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "7px",
-            }}
-          >
-            <RotateCcw size={14} />
-            Clear
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onFiltersChange?.({ ...filters })}
-            style={{
-              minHeight: "39px",
-              padding: "0 19px",
-              border: "1px solid #0B9252",
-              borderRadius: "9px",
-              background: "linear-gradient(180deg, #16A765, #098B50)",
-              color: "#FFFFFF",
-              fontSize: "12px",
-              fontWeight: 700,
-              cursor: "pointer",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              boxShadow: "0 3px 7px rgba(16, 153, 87, 0.15)",
-            }}
-          >
-            <Filter size={14} />
-            Apply Filters
-          </button>
-        </div>
-      </div>
     </section>
   );
 }

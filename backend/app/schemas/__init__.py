@@ -169,11 +169,11 @@ class TechnicianCreate(BaseModel):
 
 
 class TechnicianAvailabilityUpdate(BaseModel):
-    technician_status: Literal["Available", "Busy", "Assigned", "Offline", "En Route", "On Site", "On Break", "Suspended", "AVAILABLE", "BUSY", "ASSIGNED", "OFFLINE", "EN_ROUTE", "ON_SITE", "ON_BREAK", "SUSPENDED"]
+    technician_status: Literal["Available", "Busy", "Assigned", "Offline", "En Route", "On Site", "On Break", "Suspended", "Deactivated", "AVAILABLE", "BUSY", "ASSIGNED", "OFFLINE", "EN_ROUTE", "ON_SITE", "ON_BREAK", "SUSPENDED", "DEACTIVATED"]
 
 class TechnicianStatusUpdate(BaseModel):
     technician_id: int
-    status: Literal["Available", "Busy", "Assigned", "Offline", "En Route", "On Site", "On Break", "Suspended", "AVAILABLE", "BUSY", "ASSIGNED", "OFFLINE", "EN_ROUTE", "ON_SITE", "ON_BREAK", "SUSPENDED"]
+    status: Literal["Available", "Busy", "Assigned", "Offline", "En Route", "On Site", "On Break", "Suspended", "Deactivated", "AVAILABLE", "BUSY", "ASSIGNED", "OFFLINE", "EN_ROUTE", "ON_SITE", "ON_BREAK", "SUSPENDED", "DEACTIVATED"]
 
 class TechnicianResponse(BaseModel):
     technician_id: int
@@ -306,6 +306,7 @@ class PlannedAssignmentResponse(BaseModel):
     technician: str
     skill: str
     customer: str
+    service_type: Optional[str] = None
     location: str
     priority: str
     status: str

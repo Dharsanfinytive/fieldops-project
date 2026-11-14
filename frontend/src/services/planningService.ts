@@ -434,12 +434,13 @@ export interface JobClosureData {
   upi_amount?: number;
   gst_amount?: number;
   total_amount?: number;
+  closure_decision?: ClosureAgentDecision;
 }
 
 export interface ClosureAgentInput {
   technician_notes: string;
   parts_used: string[];
-  duration_minutes: number;
+  duration_minutes?: number;
 }
 
 export interface ClosureAgentDecision {
@@ -448,8 +449,30 @@ export interface ClosureAgentDecision {
   invoice_description: string;
   follow_up_required: boolean;
   follow_up_reason: string | null;
-  confidence: number;
+  confidence?: number;
 }
+
+export interface ClosureAgentResult {
+  closure_id: number;
+  job_id: number;
+  customer_name: string | null;
+  service_type: string | null;
+  technician_name: string | null;
+  work_summary: string;
+  follow_up_required: boolean;
+  follow_up_reason: string | null;
+  completed_at: string | null;
+}
+
+export const getClosureAgentResults = async (): Promise<ClosureAgentResult[]> => {
+  try {
+    const response = await api.get<ClosureAgentResult[]>("/jobs/closure-agent/results");
+    return response.data;
+  } catch (error) {
+    handleApiError(error);
+    return [];
+  }
+};
 
 /**
  * Generate draft closure text. This endpoint does not close the job or

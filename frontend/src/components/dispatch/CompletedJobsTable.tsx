@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Eye, ExternalLink } from "lucide-react";
+import { Eye } from "lucide-react";
 import type { PlanningJobFilterValues } from "./PlanningJobFilters";
-import { getJobs } from "../../services/planningService";
+import { getJobs, getTechnicians } from "../../services/planningService";
 
 interface CompletedJob {
   id: string | number;
   customer_name?: string;
+  technician_name?: string | null;
   issue_description?: string;
+  assigned_technician_id?: string | number | null;
   location?: string;
   priority?: string;
   service_type?: string;
@@ -20,9 +22,9 @@ interface CompletedJobsTableProps {
   onViewJob?: (job: CompletedJob) => void;
   filters: PlanningJobFilterValues;
 }
-interface CompletedJobsTableProps {
-  onCountChange?: (count: number) => void;
-  onViewJob?: (job: CompletedJob) => void;
+interface Technician {
+  technician_id: string | number;
+  technician_name: string;
 }
 
 const PAGE_SIZE = 10;
@@ -63,6 +65,7 @@ export default function CompletedJobsTable({
   filters,
 }: CompletedJobsTableProps) {
   const [jobs, setJobs] = useState<CompletedJob[]>([]);
+  const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [page, setPage] = useState(1);
   const [totalJobs, setTotalJobs] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -85,24 +88,27 @@ export default function CompletedJobsTable({
   setLoading(false);
   return;
 }
-      const response = await getJobs({
-  status: "COMPLETED_OR_CLOSED",
-  search: filters.search.trim() || undefined,
-  location: filters.location.trim() || undefined,
-  priority:
-    filters.priority !== "ALL" ? filters.priority : undefined,
-  service_type:
-    filters.serviceType !== "ALL"
-      ? filters.serviceType
-      : undefined,
-  sla: filters.sla !== "ALL" ? filters.sla : undefined,
-  technician_id:
-    filters.technician !== "ALL"
-      ? Number(filters.technician)
-      : undefined,
-  page,
-  limit: PAGE_SIZE,
-});
+      const [response, technicianResponse] = await Promise.all([
+        getJobs({
+          status: "COMPLETED_OR_CLOSED",
+          search: filters.search.trim() || undefined,
+          location: filters.location.trim() || undefined,
+          priority:
+            filters.priority !== "ALL" ? filters.priority : undefined,
+          service_type:
+            filters.serviceType !== "ALL"
+              ? filters.serviceType
+              : undefined,
+          sla: filters.sla !== "ALL" ? filters.sla : undefined,
+          technician_id:
+            filters.technician !== "ALL"
+              ? Number(filters.technician)
+              : undefined,
+          page,
+          limit: PAGE_SIZE,
+        }),
+        getTechnicians(),
+      ]);
 
       const rows: CompletedJob[] = Array.isArray(response?.data)
         ? response.data.filter(
@@ -125,6 +131,11 @@ export default function CompletedJobsTable({
         : rows.length;
 
       setJobs(rows);
+      setTechnicians(
+        Array.isArray(technicianResponse?.data)
+          ? technicianResponse.data
+          : [],
+      );
       setTotalJobs(total);
       onCountChange?.(total);
     } catch (err) {
@@ -162,6 +173,7 @@ export default function CompletedJobsTable({
     background: "#FFFFFF",
     border: "1px solid #E3ECE7",
     borderRadius: "12px",
+    boxShadow: "0 1px 4px rgba(47, 79, 62, 0.07)",
     overflow: "hidden",
     fontFamily: "'Inter', sans-serif",
 
@@ -174,59 +186,6 @@ export default function CompletedJobsTable({
   }}
 >
       <div
-        style={{
-          padding: "14px 16px",
-          borderBottom: "1px solid #E3ECE7",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "10px",
-          flexShrink: 0,
-        }}
-      >
-        <div>
-          <h3 style={{ margin: 0, fontSize: "15px", color: "#1F2933" }}>
-            Completed Jobs
-          </h3>
-          <p
-            style={{
-              margin: "4px 0 0",
-              color: "#6B7280",
-              fontSize: "11px",
-            }}
-          >
-            Jobs completed by technicians
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => void fetchCompletedJobs()}
-          disabled={loading}
-          style={{
-            padding: "7px 12px",
-            border: "1px solid #E3ECE7",
-            borderRadius: "7px",
-            background: "#FFFFFF",
-            cursor: loading ? "wait" : "pointer",
-            fontWeight: 600,
-          }}
-        >
-          {loading ? "Loading..." : "Refresh"}
-        </button>
-      </div>
-
-      {error && (
-        <div
-          role="alert"
-          style={{ padding: "16px", color: "#B91C1C" }}
-        >
-          {error}
-        </div>
-      )}
-
-      {!error && (
-        <div
   style={{
     flex: 1,
     minHeight: 0,
@@ -239,30 +198,32 @@ export default function CompletedJobsTable({
             style={{
               width: "100%",
               borderCollapse: "collapse",
-              minWidth: "900px",
+              minWidth: "760px",
             }}
           >
             <thead>
               <tr style={{ background: "#F6FAF8" }}>
                 {[
-                  "ID",
-                  "Customer",
-                  "Location",
+                  "Job ID",
+                  "Customer Name",
+                  "Service Name",
+                  "Technician Name",
                   "Priority",
-                  "Service Type",
-                  "Preferred Date",
                   "Status",
-                  "Actions",
+                  "Action",
                 ].map((heading) => (
                   <th
                     key={heading}
                     style={{
-                      padding: "12px",
+                      padding: "4px 8px",
                       textAlign: "left",
-                      fontSize: "10px",
+                      fontSize: "9.5px",
+                      fontWeight: 700,
                       color: "#6B7280",
                       borderBottom: "1px solid #E3ECE7",
                       whiteSpace: "nowrap",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
                     }}
                   >
                     {heading}
@@ -272,14 +233,21 @@ export default function CompletedJobsTable({
             </thead>
 
             <tbody>
-              {!loading && jobs.length === 0 && (
+              {error && (
+                <tr><td colSpan={7} role="alert" style={{ padding: "8px", color: "#B91C1C", fontSize: "11.5px" }}>{error}</td></tr>
+              )}
+              {!error && loading && jobs.length === 0 && (
+                <tr><td colSpan={7} style={{ padding: "8px", color: "#64748B", fontSize: "11.5px" }}>Loading jobs...</td></tr>
+              )}
+              {!error && !loading && jobs.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={7}
                     style={{
-                      padding: "30px",
+                      padding: "8px",
                       textAlign: "center",
                       color: "#6B7280",
+                      fontSize: "11.5px",
                     }}
                   >
                     No completed jobs found.
@@ -290,6 +258,11 @@ export default function CompletedJobsTable({
               {jobs.map((job) => {
                 const jobId = String(job.id);
                 const expanded = expandedJobId === jobId;
+                const technician = technicians.find(
+                  (row) =>
+                    String(row.technician_id) ===
+                    String(job.assigned_technician_id),
+                );
 
                 return (
                   <>
@@ -297,140 +270,51 @@ export default function CompletedJobsTable({
                       key={jobId}
                       style={{ borderBottom: "1px solid #E3ECE7" }}
                     >
-                      <td
-                        style={{
-                          padding: "12px",
-                          color: "#5C9470",
-                          fontWeight: 700,
-                          fontSize: "11px",
-                        }}
-                      >
+                      <td style={{ padding: "4px 8px", color: "#5C9470", fontWeight: 700, fontSize: "11.5px" }}>
                         #{job.id}
                       </td>
 
-                      <td
-                        style={{
-                          padding: "12px",
-                          minWidth: "190px",
-                        }}
-                      >
-                        <strong
-                          style={{
-                            display: "block",
-                            color: "#2F4F3E",
-                            fontSize: "12px",
-                          }}
-                        >
+                      <td style={{ padding: "4px 8px", minWidth: "190px" }}>
+                        <strong style={{ color: "#2F4F3E", fontSize: "11.5px" }}>
                           {job.customer_name || "Unknown customer"}
                         </strong>
-
-                        <span
-                          style={{
-                            display: "block",
-                            marginTop: "3px",
-                            color: "#6B7280",
-                            fontSize: "11px",
-                          }}
-                        >
-                          {job.issue_description || "—"}
-                        </span>
                       </td>
 
-                      <td
-                        style={{
-                          padding: "12px",
-                          fontSize: "11px",
-                          minWidth: "170px",
-                        }}
-                      >
-                        <span>{job.location || "—"}</span>
-
-                        {job.location && (
-                          <a
-                            href={`https://maps.google.com/?q=${encodeURIComponent(
-                              job.location,
-                            )}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="Open location in Maps"
-                            style={{
-                              marginLeft: "6px",
-                              color: "#94A3B8",
-                            }}
-                          >
-                            <ExternalLink
-                              size={12}
-                              style={{ verticalAlign: "middle" }}
-                            />
-                          </a>
-                        )}
+                      <td style={{ padding: "4px 8px", fontSize: "11.5px" }}>
+                        {job.service_type || "—"}
                       </td>
 
-                      <td style={{ padding: "12px" }}>
+                      <td style={{ padding: "4px 8px", fontSize: "11.5px" }}>
+                        {technician?.technician_name || "Not Assigned"}
+                      </td>
+
+                      <td style={{ padding: "4px 8px" }}>
                         <span style={getPriorityStyle(job.priority)}>
                           {job.priority || "—"}
                         </span>
                       </td>
 
-                      <td
-                        style={{
-                          padding: "12px",
-                          fontSize: "11px",
-                        }}
-                      >
-                        {job.service_type || "—"}
-                      </td>
-
-                      <td
-                        style={{
-                          padding: "12px",
-                          fontSize: "11px",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {job.preferred_service_date
-                          ? String(job.preferred_service_date).slice(
-                              0,
-                              10,
-                            )
-                          : "—"}
-                      </td>
-
-                      <td style={{ padding: "12px" }}>
-                        <span
-                          style={{
-                            background: "#E5EDFF",
-                            color: "#1D4ED8",
-                            borderRadius: "20px",
-                            padding: "5px 10px",
-                            fontSize: "10px",
-                            fontWeight: 700,
-                          }}
-                        >
-                          Completed
+                      <td style={{ padding: "4px 8px", fontSize: "11.5px" }}>
+                        <span style={{ fontWeight: 600 }}>
+                          {(job.status || "COMPLETED").replace(/[\s_-]+/g, " ").toUpperCase()}
                         </span>
                       </td>
 
-                      <td style={{ padding: "12px" }}>
+                      <td style={{ padding: "4px 8px" }}>
                         <button
                           type="button"
+                          className="icon-action-btn-style"
                           aria-label={`View job ${job.id} details`}
                           title="View job details"
                           onClick={() => {
-  if (onViewJob) {
-    onViewJob(job);
-  } else {
-    setExpandedJobId(
-      expanded ? null : jobId,
-    );
-  }
-}}
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: "#059669",
-                            cursor: "pointer",
-                            padding: "5px",
+                            if (onViewJob) {
+                              onViewJob({
+                                ...job,
+                                technician_name: technician?.technician_name || null,
+                              });
+                            } else {
+                              setExpandedJobId(expanded ? null : jobId);
+                            }
                           }}
                         >
                           <Eye size={16} />
@@ -441,7 +325,7 @@ export default function CompletedJobsTable({
                     {expanded && (
                       <tr key={`${jobId}-details`}>
                         <td
-                          colSpan={8}
+                          colSpan={7}
                           style={{
                             padding: "12px 16px",
                             background: "#F8FBF9",
@@ -472,28 +356,28 @@ export default function CompletedJobsTable({
               })}
             </tbody>
           </table>
-        </div>
-      )}
+      </div>
 
       <div
         style={{
-          padding: "10px 14px",
+          padding: "8px",
           borderTop: "1px solid #E3ECE7",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          fontSize: "11px",
+          fontSize: "11.5px",
           color: "#6B7280",
           flexShrink: 0,
         }}
       >
         <span>
-          Page {page} of {totalPages} · {totalJobs} completed jobs
+          Page {page} of {totalPages} · {totalJobs} results
         </span>
 
         <div style={{ display: "flex", gap: "8px" }}>
           <button
             type="button"
+            className="planning-page-btn-style"
             disabled={page <= 1}
             onClick={() => setPage((current) => current - 1)}
           >
@@ -502,6 +386,7 @@ export default function CompletedJobsTable({
 
           <button
             type="button"
+            className="planning-page-btn-style"
             disabled={page >= totalPages}
             onClick={() => setPage((current) => current + 1)}
           >

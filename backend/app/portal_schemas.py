@@ -479,6 +479,7 @@ class TechnicianJobCompleteRequest(BaseModel):
     completion_notes: Optional[str] = None
     photos: Optional[List[str]] = Field(default_factory=list)
     signature: Optional[str] = None
+    closure_decision: Optional[Dict[str, Any]] = None
 
 
 # ──────────────────────────────────────────────────
