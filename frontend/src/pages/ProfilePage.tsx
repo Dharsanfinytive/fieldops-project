@@ -70,10 +70,20 @@ interface ToastNotice {
   message: string;
 }
 
-export default function ProfilePage() {
+interface ProfilePageProps {
+  initialTab?: "profile" | "orgs" | "users";
+  initialProvisionRole?: string;
+  onInitialNavigationHandled?: () => void;
+}
+
+export default function ProfilePage({
+  initialTab = "profile",
+  initialProvisionRole = "dispatcher",
+  onInitialNavigationHandled,
+}: ProfilePageProps) {
   const { user, updateUser } = useAuthStore();
   const [activeTab, setActiveTab] = useState<"profile" | "orgs" | "users">(
-    "profile",
+    initialTab,
   );
 
   // Toast notifications state
@@ -139,7 +149,7 @@ export default function ProfilePage() {
   const [userFirstName, setUserFirstName] = useState("");
   const [userLastName, setUserLastName] = useState("");
   const [userMobileNumber, setUserMobileNumber] = useState("");
-  const [userRole, setUserRole] = useState("dispatcher");
+  const [userRole, setUserRole] = useState(initialProvisionRole);
   const [isSubmittingUser, setIsSubmittingUser] = useState(false);
 
   // Organizations list
@@ -155,6 +165,14 @@ export default function ProfilePage() {
   const selectedOrganizationHasDispatcher = (selectedOrganization?.dispatcher_count || 0) > 0;
   const mfaSupportedRoles = ["technician", "dispatcher", "admin", "super_admin"];
   const canUseMFA = mfaSupportedRoles.includes((user?.role || "").toLowerCase());
+
+  useEffect(() => {
+    if (initialTab !== "profile") {
+      setActiveTab(initialTab);
+      setUserRole(initialProvisionRole);
+      onInitialNavigationHandled?.();
+    }
+  }, [initialTab, initialProvisionRole]);
 
   useEffect(() => {
     if (userRole === "dispatcher" && selectedOrganizationHasDispatcher) {

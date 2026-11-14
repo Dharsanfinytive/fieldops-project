@@ -19,9 +19,11 @@ import {
   Headphones,
   Bell,
   ChevronDown,
+  Menu,
   MapPin,
   Wrench,
   Workflow,
+  MessageSquareText,
 } from "lucide-react";
 import useAuthStore from "./store/authStore";
 import NotificationBell from "./components/notifications/NotificationBell";
@@ -70,6 +72,7 @@ const OrganizationOnboardingPage = lazy(
 );
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const AgentTrackingPage = lazy(() => import("./pages/AgentTrackingPage"));
+const CommunicationCenterPage = lazy(() => import("./pages/CommunicationCenterPage"));
 const JobsPage = lazy(() => import("./pages/JobsPage"));
 const TechniciansDispatchersPage = lazy(
   () => import("./pages/TechniciansDispatchersPage"),
@@ -218,7 +221,7 @@ const styles = {
   } as React.CSSProperties,
 
   sidebarContentCollapsed: {
-  padding: "0px 6px",
+  padding: "12px 6px",
 } as React.CSSProperties,
 
   sidebarContentMobile: {
@@ -503,6 +506,16 @@ const styles = {
 };
 
 const localCss = `
+  .admin-menu-sidebar .nav-item-style:hover {
+    background-color: #C8E0D3 !important;
+    color: #0F3D2E !important;
+  }
+
+  .admin-menu-sidebar .sidebar-toggle-style:hover {
+    color: #0F3D2E !important;
+    transform: scale(1.05) !important;
+  }
+
   .nav-item-style:hover {
     background-color: #EAF4EE !important;
     color: #2F4F3E !important;
@@ -685,6 +698,12 @@ function AppInner() {
   const isAdminOrDispatcher =
     !isTechnician && !isCustomer;
 
+  const [headerSearch, setHeaderSearch] = useState("");
+  const [profileProvisioningRequest, setProfileProvisioningRequest] = useState<{
+    tab: "users";
+    role: "technician";
+  } | null>(null);
+
   const [activeTab, setActiveTab] =
     useState(() => {
       if (
@@ -705,7 +724,9 @@ function AppInner() {
     });
 
   useEffect(() => {
-    if (activeTab === "sentiment" || activeTab === "communication_center") {
+    if (activeTab === "closure_agent") {
+      setActiveTab("agent_tracking");
+    } else if (activeTab === "sentiment" || activeTab === "communication_center") {
       setActiveTab("dashboard");
     }
   }, [activeTab]);
@@ -1467,13 +1488,22 @@ function AppInner() {
               "5px 6px",
           }
         : {}),
+      ...((isSuperAdmin || isDispatcher) && !isMobileLayout
+        ? {
+            minHeight: "42px",
+            padding: "10px 10px 10px 8px",
+            borderRadius: "11px",
+            gap: "12px",
+            fontSize: "14px",
+          }
+        : {}),
     };
 
     if (active) {
       base = {
         ...base,
         ...styles.navActive,
-        ...(isCustomer && !isMobileLayout
+        ...((isCustomer || isSuperAdmin || isDispatcher) && !isMobileLayout
           ? {
               background: "#B5D5C4",
               color: "#0F3D2E",
@@ -1606,8 +1636,10 @@ function AppInner() {
 
           <input
             type="search"
-            aria-label="Search by name, email, phone, or ID"
-            placeholder="Search by name, email, phone, or ID..."
+            aria-label={activeTab === "planning" ? "Search jobs by ID, technician, or details" : "Search by name, email, phone, or ID"}
+            placeholder={activeTab === "planning" ? "Search jobs by ID, technician, or details..." : "Search by name, email, phone, or ID..."}
+            value={headerSearch}
+            onChange={(event) => setHeaderSearch(event.target.value)}
             style={{
               width: "100%",
               height: "44px",
@@ -2009,6 +2041,16 @@ function AppInner() {
                   boxSizing: "border-box",
                   transition: "width 0.25s ease, min-width 0.25s ease",
                 }
+            : (isSuperAdmin || isDispatcher) && !isMobileLayout
+              ? {
+                  ...(sidebarCollapsed
+                    ? { ...styles.sidebar, ...styles.sidebarCollapsed }
+                    : styles.sidebar),
+                  width: sidebarCollapsed ? "64px" : "240px",
+                  minWidth: sidebarCollapsed ? "64px" : "240px",
+                  background: "#D8E8DF",
+                  borderRight: "1px solid #C2D9CC",
+                }
             : isTechnicianShell && !isMobileLayout
               ? {
                   ...styles.sidebar,
@@ -2120,6 +2162,29 @@ function AppInner() {
                   ? {
                       display: "none",
                     }
+                  : (isSuperAdmin || isDispatcher)
+                    ? {
+                        position: "absolute",
+                        right: 0,
+                        top: "16px",
+                        width: "22px",
+                        height: "36px",
+                        borderTopLeftRadius: "18px",
+                        borderBottomLeftRadius: "18px",
+                        borderTopRightRadius: 0,
+                        borderBottomRightRadius: 0,
+                        background: "#FFFFFF",
+                        border: "1px solid #CBD5E1",
+                        borderRight: "none",
+                        boxShadow: "-2px 1px 4px rgba(0, 0, 0, 0.06)",
+                        color: "#64748B",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: 0,
+                        zIndex: 300,
+                      }
                   : sidebarCollapsed
                     ? {
                         ...styles.sidebarToggle,
@@ -2130,7 +2195,7 @@ function AppInner() {
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
               aria-label="Toggle sidebar"
             >
-              {sidebarCollapsed ? (
+              {(isSuperAdmin || isDispatcher) ? <Menu size={16} /> : sidebarCollapsed ? (
                 <ChevronsRight size={18} />
               ) : (
                 <ChevronsLeft size={18} />
@@ -2154,6 +2219,9 @@ function AppInner() {
                   }
                 : {
                     ...styles.sidebarContent,
+                    ...((isSuperAdmin || isDispatcher) && !isMobileLayout
+                      ? { padding: "12px 12px" }
+                      : {}),
                     ...(isMobileLayout
                       ? styles.sidebarContentMobile
                       : {}),
@@ -2168,7 +2236,7 @@ function AppInner() {
             <div
               aria-hidden="true"
               style={
-                isMobileLayout || isTechnician || isCustomer
+                isMobileLayout || isTechnician || isCustomer || isSuperAdmin || isDispatcher
                   ? { display: "none" }
                   : {
                       height: "38px",
@@ -2447,7 +2515,7 @@ function AppInner() {
                   : styles.sidebarNav
               }
             >
-              <span
+              {!(isSuperAdmin || isDispatcher) && <span
                 style={
                   isMobileLayout ||
                   sidebarCollapsed
@@ -2459,7 +2527,7 @@ function AppInner() {
                 }
               >
                 MAIN MENU
-              </span>
+              </span>}
 
               <button
                 className="nav-item-style"
@@ -2562,7 +2630,7 @@ function AppInner() {
                 </span>
               </button>
 
-              {isSuperAdmin && (
+              {(isSuperAdmin || isDispatcher) && (
                 <button
                   className="nav-item-style"
                   style={getItemStyle("agent_tracking")}
@@ -3112,6 +3180,10 @@ function AppInner() {
                 <TechniciansDispatchersPage
                   activeView={activeTab === "dispatchers" ? "dispatchers" : "technicians"}
                   allowDispatcherToggle={isSuperAdmin}
+                  onAddTechnician={isSuperAdmin ? () => {
+                    setProfileProvisioningRequest({ tab: "users", role: "technician" });
+                    handleTabChange("profile");
+                  } : undefined}
                   onViewChange={(view: "technicians" | "dispatchers") =>
                     handleTabChange(view === "dispatchers" ? "dispatchers" : "techboard")
                   }
@@ -3121,6 +3193,7 @@ function AppInner() {
               {activeTab ===
                 "planning" && (
                 <PlanningPage
+  globalSearch={headerSearch}
   onViewCompletedJob={setSelectedCompletedJobForView}
 />
               )}
@@ -3142,9 +3215,15 @@ function AppInner() {
 
               {activeTab === "agent_tracking" && isSuperAdmin && <AgentTrackingPage />}
 
+              {activeTab === "communication_center" && (isSuperAdmin || isDispatcher) && <CommunicationCenterPage />}
+
               {activeTab ===
                 "profile" && (
-                <ProfilePage />
+                <ProfilePage
+                  initialTab={profileProvisioningRequest?.tab}
+                  initialProvisionRole={profileProvisioningRequest?.role}
+                  onInitialNavigationHandled={() => setProfileProvisioningRequest(null)}
+                />
               )}
 
               {activeTab ===

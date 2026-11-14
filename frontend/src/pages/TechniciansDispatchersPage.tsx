@@ -9,12 +9,14 @@ interface TechniciansDispatchersPageProps {
   activeView?: StaffView;
   allowDispatcherToggle?: boolean;
   onViewChange?: (view: StaffView) => void;
+  onAddTechnician?: () => void;
 }
 
 export default function TechniciansDispatchersPage({
   activeView: requestedView,
   allowDispatcherToggle = true,
   onViewChange,
+  onAddTechnician,
 }: TechniciansDispatchersPageProps) {
   const [activeView, setActiveView] = useState<StaffView>(
     requestedView ?? "technicians",
@@ -128,7 +130,7 @@ export default function TechniciansDispatchersPage({
 
       <main className="staff-switch-body">
         {activeView === "technicians" ? (
-          <TechnicianListPage />
+          <TechnicianListPage onAddTechnician={onAddTechnician} />
         ) : (
           <DispatcherPage />
         )}

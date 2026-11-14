@@ -383,33 +383,22 @@ async def add_correlation_id(request: Request, call_next):
 
 cors_origins_raw = os.getenv(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,http://localhost:3000,*",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
 ).split(",")
 
 cors_origins = [
     origin.strip()
     for origin in cors_origins_raw
-    if origin.strip()
+    if origin.strip() and origin.strip() != "*"
 ]
-
-if "*" in cors_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Correlation-ID"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Correlation-ID"],
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Correlation-ID"],
+)
 
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -566,3 +555,15 @@ def home():
     return {
         "message": "FieldOps Commander backend is running"
     }
+
+
+# Keep CORS outside Starlette's error middleware too, so even an unhandled
+# backend error response includes the headers the browser needs to show it.
+app.middleware_stack = CORSMiddleware(
+    app=app.build_middleware_stack(),
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Correlation-ID"],
+)

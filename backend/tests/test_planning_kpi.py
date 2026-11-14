@@ -628,6 +628,16 @@ def test_planning_kpi_zero_current_and_previous_values():
 # PLANNED ASSIGNMENTS
 # ============================================================
 
+def set_planned_job_status(job_id: int, status: str) -> None:
+    db = TestingSessionLocal()
+    try:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        assert job is not None
+        job.status = status
+        db.commit()
+    finally:
+        db.close()
+
 def test_get_planned_assignments_basic():
     response = client.get("/planned-assignments")
 
@@ -635,19 +645,16 @@ def test_get_planned_assignments_basic():
 
     data = response.json()
 
-    # Tenant 1 assigned jobs:
-    # 101 -> tech 1
-    # 107 -> tech 1
-    assert len(data) == 2
+    # The assigned jobs in this fixture are in progress or declined, so
+    # neither belongs in Planned Assignments.
+    assert len(data) == 0
 
-    assert response.headers["X-Total-Count"] == "2"
+    assert response.headers["X-Total-Count"] == "0"
     assert "Access-Control-Expose-Headers" in response.headers
-
-    assert data[0]["job_id"] == 107
-    assert data[1]["job_id"] == 101
 
 
 def test_get_planned_assignments_search_by_text():
+    set_planned_job_status(101, "ACCEPTED")
     response = client.get(
         "/planned-assignments",
         params={"search": "John"},
@@ -663,6 +670,7 @@ def test_get_planned_assignments_search_by_text():
 
 
 def test_get_planned_assignments_search_by_id():
+    set_planned_job_status(101, "ACCEPTED")
     response = client.get(
         "/planned-assignments",
         params={"search": "#101"},
@@ -677,6 +685,7 @@ def test_get_planned_assignments_search_by_id():
 
 
 def test_get_planned_assignments_search_invalid_id():
+    set_planned_job_status(101, "ACCEPTED")
     response = client.get(
         "/planned-assignments",
         params={"search": "Alice"},
@@ -686,10 +695,11 @@ def test_get_planned_assignments_search_invalid_id():
 
     data = response.json()
 
-    assert len(data) == 2
+    assert len(data) == 1
 
 
 def test_get_planned_assignments_pagination():
+    set_planned_job_status(101, "ACCEPTED")
     response = client.get(
         "/planned-assignments",
         params={
@@ -703,10 +713,10 @@ def test_get_planned_assignments_pagination():
     data = response.json()
 
     assert len(data) == 1
-    assert data[0]["job_id"] == 107
+    assert data[0]["job_id"] == 101
 
-    # Header still reports the complete count.
-    assert response.headers["X-Total-Count"] == "2"
+    # Header reports only planned-stage jobs.
+    assert response.headers["X-Total-Count"] == "1"
 
 
 def test_get_planned_assignments_super_admin():
@@ -714,6 +724,9 @@ def test_get_planned_assignments_super_admin():
     Covers the super-admin branch where tenant filtering
     is skipped.
     """
+
+    set_planned_job_status(101, "ACCEPTED")
+    set_planned_job_status(109, "ACCEPTED")
 
     super_admin = AuthenticatedUser(
         user_id="super-admin",
@@ -738,8 +751,8 @@ def test_get_planned_assignments_super_admin():
 
     data = response.json()
 
-    # Tenant 2 job 109 is now visible.
-    assert len(data) == 3
+    # Tenant 2 job 109 is now visible alongside tenant 1's planned job.
+    assert len(data) == 2
 
     assert any(item["job_id"] == 109 for item in data)
 

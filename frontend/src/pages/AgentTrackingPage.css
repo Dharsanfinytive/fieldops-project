@@ -348,6 +348,42 @@
 .agent-track-data-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .agent-track-data-card { min-width: 0; padding: 13px; border: 1px solid #e1eae4; border-radius: 10px; background: #fff; }
 .agent-track-data-card h3 { margin: 0 0 10px; color: #087447; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+
+.agent-track-event.kind-closure { margin: 8px 0 2px; padding: 0 12px; border: 1px solid #b8e4c5; border-radius: 13px; background: #f4fbf6; }
+.agent-track-event.kind-closure .agent-track-event-trigger { border-bottom-color: #dcefe2; }
+.agent-track-event.kind-closure .agent-track-event-icon { color: #087b35; background: #e4f7e9; }
+.agent-track-event-state.status-passed { color: #087337; background: #e4f7e9; }
+.agent-track-event-state.status-review { color: #9b5b08; background: #fff5df; }
+.agent-track-closure-detail { display: grid; grid-template-columns: minmax(240px, .85fr) minmax(280px, 1.15fr); gap: 14px; margin: 0 0 12px 113px; padding: 16px; border: 1px solid #d8eadc; border-radius: 13px; background: #fff; box-shadow: 0 2px 8px rgba(20, 54, 38, .04); }
+.agent-track-closure-summary { display: flex; align-items: flex-start; gap: 13px; min-width: 0; padding: 10px; }
+.agent-track-closure-mark { display: grid; place-items: center; width: 52px; height: 52px; flex: 0 0 52px; color: #07813b; border-radius: 14px; background: #e7f8eb; }
+.agent-track-closure-result { display: grid; justify-items: start; gap: 7px; min-width: 0; }
+.agent-track-closure-result h3 { margin: 0; color: #17261e; font-size: 16px; }
+.agent-track-closure-result > strong { font-size: 13px; }
+.agent-track-closure-result > strong.is-passed { color: #07813b; }
+.agent-track-closure-result > strong.is-review { color: #9b5b08; }
+.agent-track-closure-result p { margin: 0; color: #65766e; font-size: 12px; line-height: 1.5; }
+.agent-track-closure-badge { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 20px; font-size: 10px; font-weight: 800; }
+.agent-track-closure-badge.is-passed { color: #087337; background: #e4f7e9; }
+.agent-track-closure-badge.is-review { color: #9b5b08; background: #fff5df; }
+.agent-track-closure-checks { min-width: 0; padding: 10px 12px; border: 1px solid #e6eee8; border-radius: 11px; background: #fbfdfb; }
+.agent-track-closure-checks h4 { margin: 0 0 8px; color: #52665a; font-size: 10px; font-weight: 800; letter-spacing: .45px; text-transform: uppercase; }
+.agent-track-closure-check { display: grid; grid-template-columns: 19px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 34px; border-bottom: 1px solid #e8eeea; }
+.agent-track-closure-check:last-child { border-bottom: 0; }
+.agent-track-closure-check > span { display: grid; place-items: center; width: 17px; height: 17px; color: #fff; border-radius: 4px; background: #0a8d3d; }
+.agent-track-closure-check.is-incomplete > span { background: #c83b31; }
+.agent-track-closure-check strong { color: #293a30; font-size: 11px; font-weight: 650; }
+.agent-track-closure-check small { color: #087337; font-size: 10px; font-weight: 700; }
+.agent-track-closure-check.is-incomplete small { color: #b52e27; }
+.agent-track-closure-no-items { margin: 0; padding: 6px 0; color: #65766e; font-size: 12px; }
+.agent-track-closure-facts { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0; }
+.agent-track-closure-facts > div { min-width: 0; padding: 10px 11px; border: 1px solid #e7ede9; border-radius: 9px; background: #fff; }
+.agent-track-closure-facts dt { margin-bottom: 4px; color: #718178; font-size: 9px; font-weight: 800; letter-spacing: .35px; text-transform: uppercase; }
+.agent-track-closure-facts dd { margin: 0; color: #2e4235; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .agent-track-closure-detail { grid-template-columns: minmax(0, 1fr); margin-left: 0; }
+  .agent-track-closure-facts { grid-template-columns: minmax(0, 1fr); }
+}
 .agent-track-data-card > p { margin: 0; color: #738077; font-size: 11px; }
 .agent-track-data-card dl { display: grid; gap: 8px; margin: 0; }
 .agent-track-data-card dl > div { display: grid; grid-template-columns: minmax(105px, 28%) minmax(0, 1fr); gap: 10px; padding-bottom: 7px; border-bottom: 1px solid #edf1ee; }
@@ -440,13 +476,13 @@
 .agent-track-table-wrap { width: 100%; min-width: 0; box-sizing: border-box; }
 .agent-tracking-page { overflow-x: hidden; }
 .agent-track-table-wrap { overflow-x: auto; }
-.agent-track-table { width: 100%; min-width: 0; table-layout: fixed; }
+.agent-track-table { width: 100%; min-width: 1220px; table-layout: fixed; }
 .agent-track-table th,
 .agent-track-table td { padding-left: clamp(5px, .8vw, 12px); padding-right: clamp(5px, .8vw, 12px); }
 .agent-track-table th:nth-child(1) { width: 6%; }
 .agent-track-table th:nth-child(2) { width: 16%; }
-.agent-track-table th:nth-child(3) { width: 10%; }
-.agent-track-table th:nth-child(4) { width: 31%; }
+.agent-track-table th:nth-child(3) { width: 14%; }
+.agent-track-table th:nth-child(4) { width: 27%; }
 .agent-track-table th:nth-child(5) { width: 8%; }
 .agent-track-table th:nth-child(6) { width: 10%; }
 .agent-track-table th:nth-child(7) { width: 8%; }
@@ -455,17 +491,19 @@
 .agent-track-customer > span:last-child { min-width: 0; overflow: hidden; }
 .agent-track-customer strong,
 .agent-track-customer small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.agent-track-service { display: flex; max-width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; }
+.agent-track-service > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .agent-track-pipeline { width: 100%; min-width: 0; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .agent-track-pipeline-step small { max-width: 100%; overflow: hidden; font-size: clamp(7px, .62vw, 9px); text-overflow: ellipsis; }
 .agent-track-progress { min-width: 0; }
 .agent-track-progress > span { width: min(84px, 100%); }
 .agent-track-view { gap: 4px; min-height: 36px; padding: 0 8px; font-size: 10px; }
 @media (max-width: 1100px) {
-  .agent-track-table { min-width: 950px; }
+  .agent-track-table { min-width: 1220px; }
 }
 @media (max-width: 560px) {
   .agent-tracking-page { padding: 0 8px 20px; }
-  .agent-track-table { min-width: 950px; }
+  .agent-track-table { min-width: 1220px; }
 }
 
 @media (max-width: 900px) {

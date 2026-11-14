@@ -21,7 +21,7 @@ export const getUniqueZones = (): Promise<any> => api.get("/technicians/zones");
 /** Fetch available technicians with workload details */
 export const getAvailableTechnicians = (): Promise<any> => api.get("/technicians/available");
 
-/** Update technician availability status */
+/** Update a technician's active or availability status */
 export const updateTechnicianAvailability = (technicianId: string | number, technician_status: string): Promise<any> =>
   api.put(`/technicians/${technicianId}/availability`, { technician_status });
 
@@ -31,10 +31,6 @@ export const getTechnicianById = (id: string | number): Promise<any> => api.get(
 /** Update technician details */
 export const updateTechnician = (technicianId: string | number, technicianData: any): Promise<any> =>
   api.put(`/technicians/${technicianId}`, technicianData);
-
-/** Delete a technician */
-export const deleteTechnician = (technicianId: string | number): Promise<any> =>
-  api.delete(`/technicians/${technicianId}`);
 
 /** Create a technician */
 export const createTechnician = (technicianData: any): Promise<any> =>

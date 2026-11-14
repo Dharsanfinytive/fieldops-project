@@ -3,9 +3,11 @@ import axios, {
   AxiosResponse,
 } from "axios";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  "http://localhost:8000";
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const isLocalApi = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.test(configuredApiBaseUrl);
+// In local Vite development, use the dev-server proxy to avoid browser CORS
+// failures between localhost:5173 and the backend port.
+const API_BASE_URL = import.meta.env.DEV && isLocalApi ? "/__api" : configuredApiBaseUrl;
 
 const api = axios.create({
   baseURL: API_BASE_URL,

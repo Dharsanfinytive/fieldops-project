@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List, Union, Optional
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from ..database import get_db
 from .. import models, schemas
@@ -252,6 +252,11 @@ def get_all_technicians(
             
         if status and status.upper() != "ALL":
             query = query.filter(func.lower(models.Technician.technician_status) == status.lower())
+        else:
+            query = query.filter(or_(
+                models.Technician.technician_status.is_(None),
+                func.upper(models.Technician.technician_status) != "DEACTIVATED",
+            ))
             
         if zone and zone.upper() != "ALL":
             query = query.filter(func.lower(models.Technician.technician_location) == zone.lower())

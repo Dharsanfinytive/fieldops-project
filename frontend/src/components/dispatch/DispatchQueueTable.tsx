@@ -2,28 +2,16 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   useReactTable,
   getCoreRowModel,
-  getSortedRowModel,
-  getFilteredRowModel,
   flexRender,
   type ColumnDef,
-  type SortingState,
 } from "@tanstack/react-table";
 import {
-  ArrowUp,
-  Copy,
-  Check,
-  ExternalLink,
-  Search,
   Loader2,
-  Inbox,
-  Share2,
   Eye,
 } from "lucide-react";
 
 import { getDispatchQueue } from "../../services/dispatchQueueService";
 import type { DispatchQueueJob } from "../../types/dispatchQueue";
-import StatusBadge from "./StatusBadge";
-import EmptyState from "../ui/EmptyState";
 
 /* ─── Helpers ──────────────────────────────────────────────────────────────── */
 
@@ -35,116 +23,6 @@ const getPriorityStyle = (priority: string): React.CSSProperties => {
     backgroundColor: theme.bg,
     color: theme.color,
   };
-};
-
-const truncateId = (id: string): string => {
-  if (id.length <= 8) return id;
-  return `${id.slice(0, 4)}…${id.slice(-4)}`;
-};
-
-const getInitials = (name: string): string => {
-  return name
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-};
-
-const googleMapsUrl = (address: string): string =>
-  `https://maps.google.com/?q=${encodeURIComponent(address)}`;
-
-/* ─── Copy Button ──────────────────────────────────────────────────────────── */
-
-const CopyJobIdButton = ({ jobId }: { jobId: string }) => {
-  const [copied, setCopied] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
-
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(jobId).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1000);
-    });
-  };
-
-  const btnStyle = {
-    ...tableStyles.copyBtn,
-    backgroundColor: isHovered ? "#DDEEE5" : "transparent",
-    color: copied ? "#10B981" : (isHovered ? "#2F4F3E" : "#9CA3AF"),
-  };
-
-  return (
-    <button
-      style={btnStyle}
-      onClick={handleCopy}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      title={copied ? "Copied!" : "Copy full Job ID"}
-      aria-label={`Copy Job ID ${jobId}`}
-    >
-      {copied ? <Check size={12} /> : <Copy size={12} />}
-    </button>
-  );
-};
-
-/* ─── Share Tracking Button ─────────────────────────────────────────────────── */
-
-const ShareTrackingLinkButton = ({ jobId }: { jobId: string }) => {
-  const [copied, setCopied] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
-
-  const handleShare = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setLoading(true);
-    try {
-      const response = await fetch(`http://localhost:8000/api/v1/jobs/${jobId}/share`, {
-        method: "POST",
-        headers: {
-          "X-Tenant-ID": "tenant-1",
-          "Authorization": "Bearer dev-dispatcher-token"
-        }
-      });
-      if (!response.ok) throw new Error("Failed to generate share link");
-      const data = await response.json();
-      await navigator.clipboard.writeText(data.share_url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error(err);
-      alert("Could not generate tracking link");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const btnStyle = {
-    ...tableStyles.copyBtn,
-    backgroundColor: isHovered ? "#DDEEE5" : "transparent",
-    color: copied ? "#10B981" : loading ? "#9CA3AF" : (isHovered ? "#2F4F3E" : "#7AAE8A"),
-    marginLeft: "4px"
-  };
-
-  return (
-    <button
-      style={btnStyle}
-      disabled={loading}
-      onClick={handleShare}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      title={copied ? "Tracking link copied!" : "Copy customer shareable tracking link"}
-      aria-label={`Share tracking link for Job ${jobId}`}
-    >
-      {copied ? (
-        <Check size={12} />
-      ) : loading ? (
-        <Loader2 size={12} className="animate-spin" />
-      ) : (
-        <Share2 size={12} />
-      )}
-    </button>
-  );
 };
 
 /* ─── Skeleton ─────────────────────────────────────────────────────────────── */
@@ -159,36 +37,28 @@ const SkeletonRows = () => {
   };
   return (
     <>
-      {Array.from({ length: 6 }).map((_, i) => (
+      {Array.from({ length: 7 }).map((_, i) => (
         <tr key={i}>
-          <td style={{ ...tableStyles.td, padding: "12px" }}>
+          <td style={{ ...tableStyles.td, padding: "4px 8px" }}>
             <div style={{ ...skeletonBarBase, width: "60px" }} />
           </td>
-          <td style={{ ...tableStyles.td, padding: "12px" }}>
+          <td style={{ ...tableStyles.td, padding: "4px 8px" }}>
             <div style={{ ...skeletonBarBase, width: "100px" }} />
           </td>
-          <td style={{ ...tableStyles.td, padding: "12px" }}>
+          <td style={{ ...tableStyles.td, padding: "4px 8px" }}>
             <div style={{ ...skeletonBarBase, width: "140px" }} />
           </td>
-          <td style={{ ...tableStyles.td, padding: "12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{
-                width: "28px",
-                height: "28px",
-                borderRadius: "50%",
-                background: "linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 1.5s ease-in-out infinite",
-                flexShrink: 0
-              }} />
-              <div style={{ ...skeletonBarBase, width: "60px" }} />
-            </div>
+          <td style={{ ...tableStyles.td, padding: "4px 8px" }}>
+            <div style={{ ...skeletonBarBase, width: "80px" }} />
           </td>
-          <td style={{ ...tableStyles.td, padding: "12px" }}>
+          <td style={{ ...tableStyles.td, padding: "4px 8px" }}>
             <div style={{ ...skeletonBarBase, width: "50px" }} />
           </td>
-          <td style={{ ...tableStyles.td, padding: "12px" }}>
+          <td style={{ ...tableStyles.td, padding: "4px 8px" }}>
             <div style={{ ...skeletonBarBase, width: "50px" }} />
+          </td>
+          <td style={{ ...tableStyles.td, padding: "4px 8px" }}>
+            <div style={{ ...skeletonBarBase, width: "22px" }} />
           </td>
         </tr>
       ))}
@@ -214,40 +84,20 @@ const DispatchQueueTable = ({
   // Data
   const [jobs, setJobs] = useState<DispatchQueueJob[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Filters
-  const [priorityFilter, setPriorityFilter] = useState("");
-  const [searchText, setSearchText] = useState("");
-
-  // Table
-  const [sorting, setSorting] = useState<SortingState>([]);
 
   // Auto-refresh interval
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Hover states
-  const [hoveredHeader, setHoveredHeader] = useState<string | null>(null);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
-  const [hoveredMaps, setHoveredMaps] = useState<string | null>(null);
-  const [focusedFilter, setFocusedFilter] = useState<string | null>(null);
-  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
 
   const fetchQueue = useCallback(
     async (isRefresh = false) => {
       try {
-        if (isRefresh) {
-          setRefreshing(true);
-        } else {
+        if (!isRefresh) {
           setLoading(true);
         }
         setError(null);
@@ -277,7 +127,6 @@ onCountChange?.(stageJobs.length);
         setError("Failed to load dispatch queue. Please try again.");
       } finally {
         setLoading(false);
-        setRefreshing(false);
       }
     },
     [onCountChange, jobStatus]
@@ -301,33 +150,13 @@ onCountChange?.(stageJobs.length);
 
   // ── Filtered data (client-side text search) ───────────────────────────────
 
-  const filteredJobs = useMemo(() => {
-  const matchingJobs =
-    visibleJobIds == null
-      ? jobs
-      : jobs.filter((job) =>
-          visibleJobIds.has(String(job.job_id)),
-        );
-
-  const priorityFilteredJobs = priorityFilter
-    ? matchingJobs.filter((job) => job.priority === priorityFilter)
-    : matchingJobs;
-
-  if (!searchText.trim()) {
-    return priorityFilteredJobs;
-  }
-
-  const q = searchText.toLowerCase().trim();
-
-  return priorityFilteredJobs.filter(
-    (job) =>
-      job.job_id.toLowerCase().includes(q) ||
-      job.customer.toLowerCase().includes(q) ||
-      job.location.toLowerCase().includes(q) ||
-      job.title.toLowerCase().includes(q) ||
-      (job.technician?.name || "").toLowerCase().includes(q)
+  const filteredJobs = useMemo(
+    () =>
+      visibleJobIds == null
+        ? jobs
+        : jobs.filter((job) => visibleJobIds.has(String(job.job_id))),
+    [jobs, visibleJobIds],
   );
-},[jobs, searchText, priorityFilter, visibleJobIds]);
 
   // ── Column Definitions ────────────────────────────────────────────────────
 
@@ -337,103 +166,30 @@ onCountChange?.(stageJobs.length);
         accessorKey: "job_id",
         header: "Job ID",
         size: 120,
-        cell: ({ row }) => (
-          <div style={tableStyles.jobIdCell}>
-            <span style={tableStyles.jobIdText} title={row.original.job_id}>
-              {truncateId(row.original.job_id)}
-            </span>
-            <CopyJobIdButton jobId={row.original.job_id} />
-            <ShareTrackingLinkButton jobId={row.original.job_id} />
-          </div>
-        ),
+        cell: ({ row }) => <span style={tableStyles.jobIdText}>#{row.original.job_id}</span>,
       },
       {
         accessorKey: "customer",
-        header: "Customer",
+        header: "Customer Name",
         size: 170,
         cell: ({ row }) => (
-          <div>
-            <div style={tableStyles.customerName}>{row.original.customer}</div>
-            {row.original.title && (
-              <div style={tableStyles.customerTitle}>{row.original.title}</div>
-            )}
-          </div>
+          <div style={tableStyles.customerName}>{row.original.customer}</div>
         ),
       },
-      ...(jobStatus === "EN_ROUTE"
-  ? [
       {
-        accessorKey: "location",
-        header: "Location",
-        size: 200,
-        cell: ({ row }: { row: any }) => {
-          const isMapHovered =
-            hoveredMaps === row.original.job_id;
-
-          return (
-            <div style={tableStyles.locationCell}>
-              <span style={tableStyles.locationText}>
-                {row.original.location}
-              </span>
-
-              <a
-                href={googleMapsUrl(row.original.location)}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  ...tableStyles.mapLink,
-                  backgroundColor: isMapHovered
-                    ? "#EEF4F1"
-                    : "transparent",
-                  color: isMapHovered
-                    ? "#5C9470"
-                    : "#9CA3AF",
-                }}
-                title="Open in Maps"
-                onClick={(e) => e.stopPropagation()}
-                onMouseEnter={() =>
-                  setHoveredMaps(row.original.job_id)
-                }
-                onMouseLeave={() => setHoveredMaps(null)}
-              >
-                <ExternalLink size={12} />
-              </a>
-            </div>
-          );
-        },
+        accessorKey: "title",
+        header: "Service Name",
+        size: 180,
+        cell: ({ row }) => row.original.title || "—",
       },
-    ]
-  : []),
       {
         id: "technician",
-        header: "Technician",
+        header: "Technician Name",
         size: 160,
         accessorFn: (row) => row.technician?.name || "",
         cell: ({ row }) => {
-          const tech = row.original.technician;
-          if (!tech) {
-            return <span style={tableStyles.unassigned}>Unassigned</span>;
-          }
-          const statusClass = (tech.status || "").toLowerCase();
-          const avatarBg = avatarColors[statusClass] || avatarColors.unassigned;
-          return (
-            <div style={tableStyles.techCell}>
-              <div style={{ ...tableStyles.techAvatar, backgroundColor: avatarBg }}>
-                {getInitials(tech.name)}
-              </div>
-              <div style={tableStyles.techInfo}>
-                <span style={tableStyles.techName}>{tech.name}</span>
-                <span style={tableStyles.techStatusText}>{tech.status}</span>
-              </div>
-            </div>
-          );
+          return row.original.technician?.name || "Not Assigned";
         },
-      },
-      {
-        accessorKey: "status",
-        header: jobStatus === "IN_PROGRESS" ? "In Progress" : "Status",
-        size: 110,
-        cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
       {
         accessorKey: "priority",
@@ -446,13 +202,24 @@ onCountChange?.(stageJobs.length);
         ),
       },
       {
+        accessorKey: "status",
+        header: "Status",
+        size: 110,
+        cell: ({ row }) => (
+          <span style={{ fontWeight: 600 }}>
+            {(row.original.status || "UNKNOWN").replace(/[\s_-]+/g, " ").toUpperCase()}
+          </span>
+        ),
+      },
+      {
   id: "actions",
-  header: "Actions",
+  header: "Action",
   size: 80,
   enableSorting: false,
   cell: ({ row }) => (
     <button
       type="button"
+      className="icon-action-btn-style"
       title="View job details and status history"
       aria-label={`View job ${row.original.job_id} details`}
       onClick={(event) => {
@@ -462,22 +229,12 @@ onCountChange?.(stageJobs.length);
           id: row.original.job_id,
           customer_name: row.original.customer,
           issue_description: row.original.title,
+          service_type: row.original.title,
           location: row.original.location,
           priority: row.original.priority,
           status: row.original.status,
+          technician_name: row.original.technician?.name || null,
         });
-      }}
-      style={{
-        width: "32px",
-        height: "32px",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        border: "1px solid #A7D9BF",
-        borderRadius: "8px",
-        background: "#FFFFFF",
-        color: "#059669",
-        cursor: "pointer",
       }}
     >
       <Eye size={16} />
@@ -485,7 +242,7 @@ onCountChange?.(stageJobs.length);
   ),
 },
     ],
-    [hoveredMaps, jobStatus, onViewJob]
+    [onViewJob]
   );
 
   // ── Table Instance ────────────────────────────────────────────────────────
@@ -493,43 +250,10 @@ onCountChange?.(stageJobs.length);
   const table = useReactTable({
     data: filteredJobs,
     columns,
-    state: { sorting },
-    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
   });
 
   // ── Render ────────────────────────────────────────────────────────────────
-
-  const filterBarResponsive: React.CSSProperties = {
-    ...tableStyles.filterBar,
-    ...(windowWidth <= 768 ? { flexDirection: "column", gap: "8px" } : {}),
-  };
-
-  const filterSelectStyle = (id: string): React.CSSProperties => ({
-    ...tableStyles.filterSelect,
-    ...(windowWidth <= 768 ? { width: "100%", minWidth: "unset" } : {}),
-    borderColor: focusedFilter === id ? "#7AAE8A" : "#E3ECE7",
-    boxShadow: focusedFilter === id ? "0 0 0 2px rgba(122, 174, 138, 0.12)" : undefined,
-  });
-
-  const searchInputStyle: React.CSSProperties = {
-    ...tableStyles.filterSearch,
-    ...(windowWidth <= 768 ? { width: "100%" } : {}),
-    borderColor: focusedFilter === "search" ? "#7AAE8A" : "#E3ECE7",
-    boxShadow: focusedFilter === "search" ? "0 0 0 2px rgba(122, 174, 138, 0.12)" : undefined,
-  };
-
-  const searchWrapStyle: React.CSSProperties = {
-    ...tableStyles.filterSearchWrap,
-    ...(windowWidth <= 768 ? { width: "100%", minWidth: "unset" } : {}),
-  };
-
-  const filterCountResponsive: React.CSSProperties = {
-    ...tableStyles.filterCount,
-    ...(windowWidth <= 768 ? { marginLeft: "0", textAlign: "center" } : {}),
-  };
 
   return (
     <section style={tableStyles.section} aria-label="En Route Jobs">
@@ -552,118 +276,27 @@ onCountChange?.(stageJobs.length);
         `}
       </style>
 
-      {/* Filter Bar */}
-      <div style={filterBarResponsive}>
-
-        <select
-          style={filterSelectStyle("priority")}
-          value={priorityFilter}
-          onChange={(e) => setPriorityFilter(e.target.value)}
-          onFocus={() => setFocusedFilter("priority")}
-          onBlur={() => setFocusedFilter(null)}
-          aria-label="Filter by priority"
-          id="dq-priority-filter"
-        >
-          <option value="">All Priorities</option>
-          <option value="CRITICAL">Critical</option>
-          <option value="HIGH">High</option>
-          <option value="MEDIUM">Medium</option>
-          <option value="LOW">Low</option>
-        </select>
-
-        <div style={searchWrapStyle}>
-          <Search size={13} style={tableStyles.filterSearchIcon} />
-          <input
-            type="text"
-            style={searchInputStyle}
-            placeholder="Search jobs, customers, techs..."
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            onFocus={() => setFocusedFilter("search")}
-            onBlur={() => setFocusedFilter(null)}
-            aria-label="Search dispatch queue"
-            id="dq-search-input"
-          />
-        </div>
-
-        <span style={filterCountResponsive}>
-          <strong>{filteredJobs.length}</strong> of {jobs.length} jobs
-          {refreshing && (
-            <span style={tableStyles.refreshIndicator}>
-              <Loader2 size={11} className="animate-spin" />
-              Refreshing
-            </span>
-          )}
-        </span>
-      </div>
-
       {/* Table Content */}
-      <div style={{ padding: "0 0 16px" }}>
-        {error ? (
-          <EmptyState
-            icon={Inbox}
-            title="Could not load queue"
-            description={error}
-            action={
-              <button
-                style={{
-                  background: "#FFFFFF",
-                  border: "1px solid #E3ECE7",
-                  padding: "6px 12px",
-                  borderRadius: "6px",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  color: "#2F4F3E",
-                }}
-                onClick={() => fetchQueue(false)}
-              >
-                ⟳ Retry
-              </button>
-            }
-          />
-        ) : (
-          <div style={tableStyles.tableWrap}>
+      <div style={{ ...tableStyles.tableWrap, flex: 1, minHeight: 0 }}>
             <table style={tableStyles.table} role="table">
               <thead>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id}>
                     {headerGroup.headers.map((header) => {
-                      const isSorted = header.column.getIsSorted();
-                      const isHeaderHovered = hoveredHeader === header.id;
                       return (
                         <th
                           key={header.id}
-                          onClick={header.column.getToggleSortingHandler()}
-                          onMouseEnter={() => setHoveredHeader(header.id)}
-                          onMouseLeave={() => setHoveredHeader(null)}
                           style={{
                             ...tableStyles.th,
                             width: header.getSize(),
-                            backgroundColor: isHeaderHovered ? "#EEF4F1" : "#F6FAF8",
+                            padding: "4px 8px",
+                            fontSize: "9.5px",
+                            letterSpacing: "0.05em",
+                            cursor: "default",
+                            backgroundColor: "#F6FAF8",
                           }}
-                          aria-sort={
-                            isSorted === "asc"
-                              ? "ascending"
-                              : isSorted === "desc"
-                                ? "descending"
-                                : "none"
-                          }
                         >
-                          <span style={tableStyles.thInner}>
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                            <ArrowUp
-                              size={11}
-                              style={{
-                                ...tableStyles.sortIcon,
-                                color: isSorted ? "#2F4F3E" : "#9CA3AF",
-                                transform: isSorted === "desc" ? "rotate(180deg)" : "none",
-                              }}
-                            />
-                          </span>
+                          {flexRender(header.column.columnDef.header, header.getContext())}
                         </th>
                       );
                     })}
@@ -671,24 +304,14 @@ onCountChange?.(stageJobs.length);
                 ))}
               </thead>
               <tbody>
-                {loading ? (
+                {error ? (
+                  <tr><td colSpan={columns.length} role="alert" style={{ ...tableStyles.td, padding: "8px", color: "#B91C1C" }}>{error}</td></tr>
+                ) : loading ? (
                   <SkeletonRows />
                 ) : table.getRowModel().rows.length === 0 ? (
                   <tr>
-                    <td colSpan={columns.length}>
-                      <EmptyState
-                        icon={Inbox}
-                        title={
-                          searchText.trim()
-                             ? "No jobs match your search"
-                             : "No en route jobs"
-                        }
-                        description={
-                          searchText.trim()
-                            ? "Try adjusting your filters or search terms."
-                            : "Jobs appear here after the technician starts the journey."
-                        }
-                      />
+                    <td colSpan={columns.length} style={{ ...tableStyles.td, padding: "8px", textAlign: "center", color: "#64748B" }}>
+                      {jobStatus === "EN_ROUTE" ? "No en route jobs found." : "No in-progress jobs found."}
                     </td>
                   </tr>
                 ) : (
@@ -697,8 +320,6 @@ onCountChange?.(stageJobs.length);
                     return (
                       <tr
                         key={row.id}
-                        title="Click to view job details"
-                        style={{ cursor: "pointer" }}
                         onMouseEnter={() => setHoveredRow(row.id)}
                         onMouseLeave={() => setHoveredRow(null)}
                       >
@@ -707,6 +328,7 @@ onCountChange?.(stageJobs.length);
                             key={cell.id}
                             style={{
                               ...tableStyles.td,
+                              padding: "4px 8px",
                               backgroundColor: isRowHovered ? "#F4FAF6" : "transparent",
                             }}
                           >
@@ -722,8 +344,23 @@ onCountChange?.(stageJobs.length);
                 )}
               </tbody>
             </table>
-          </div>
-        )}
+      </div>
+      <div
+        style={{
+          padding: "8px",
+          borderTop: "1px solid #E3ECE7",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          color: "#6B7280",
+          fontSize: "11.5px",
+        }}
+      >
+        <span>Page 1 of 1 · {filteredJobs.length} results</span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" className="planning-page-btn-style" disabled>‹ Prev</button>
+          <button type="button" className="planning-page-btn-style" disabled>Next ›</button>
+        </div>
       </div>
     </section>
   );
@@ -733,11 +370,18 @@ onCountChange?.(stageJobs.length);
 
 const tableStyles = {
   section: {
-  fontFamily: "'Inter', sans-serif",
-  width: "100%",
-  minHeight: "420px",
-  boxSizing: "border-box",
-} as React.CSSProperties,
+    fontFamily: "'Inter', sans-serif",
+    width: "100%",
+    minHeight: "420px",
+    boxSizing: "border-box",
+    background: "#FFFFFF",
+    border: "1px solid #E3ECE7",
+    borderRadius: "12px",
+    boxShadow: "0 1px 4px rgba(47, 79, 62, 0.07)",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  } as React.CSSProperties,
   
   filterBar: {
     display: "flex",

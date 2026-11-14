@@ -11,6 +11,7 @@ from ..auth.dependencies import AuthenticatedUser, get_current_user
 from ..auth.rbac import UserRole
 from ..database import get_db
 from ..models import AuditEvent, InAppNotification, Job, JobMessage, SentimentThreadMessage
+from ..models.job_closure import JobClosure
 from ..models.transactional_email_outbox import TransactionalEmailOutbox
 from ..models_legacy import NotificationChannelDelivery
 from ..models.user import User
@@ -72,7 +73,9 @@ def _track_job(job: Job) -> dict:
     is_closed = status in {"CLOSED", "CANCELLED", "CANCELED"} or bool(
         job.closed_at or job.cancelled_at
     )
-    is_completed = status == "COMPLETED" or bool(job.completed_at)
+    is_completed = status in {"COMPLETED", "CLOSED"} or (
+        bool(job.completed_at) and status not in {"CANCELLED", "CANCELED"}
+    )
     is_accepted = (
         status in ACCEPTED_STATUSES
         or bool(job.en_route_at or job.on_site_at or job.work_started_at)
@@ -142,14 +145,17 @@ def _track_job(job: Job) -> dict:
             "event_driven",
             "Analyzes customer messages and feedback as they arrive; review alerts are generated for high risk or unresolved concerns.",
         ),
-        _stage(
-            "closure",
-            "Close Job",
-            "complete" if is_closed and status not in {"CANCELLED", "CANCELED"} else "active" if is_completed else "locked",
-            "Closure Agent recorded the final job closure." if is_closed and status not in {"CANCELLED", "CANCELED"} else "Closure Agent must authorize the completed job before final closure communication." if is_completed else "Closure Agent handles final approval and completion email after service completion.",
-            job.closed_at or job.completed_at,
-        ),
     ]
+    if is_completed:
+        stages.append(
+            _stage(
+                "closure",
+                "Close Job",
+                "complete" if is_closed else "active",
+                "Closure requirements are recorded and ready for review." if not is_closed else "Closure Agent recorded the final job closure.",
+                job.closed_at or job.completed_at,
+            )
+        )
 
     technician = getattr(job, "technician", None)
     return {
@@ -205,6 +211,28 @@ def _delivery_event_type(delivery: NotificationChannelDelivery, notification) ->
     return str(notification.type or "notification"), None
 
 
+def _work_is_incomplete(*values: object) -> bool:
+    text = " ".join(str(value or "") for value in values).lower()
+    incomplete_signals = (
+        "not finished",
+        "unfinished",
+        "not completed",
+        "not complete",
+        "incomplete",
+        "not done",
+        "not resolved",
+        "issue remains unresolved",
+        "work remains",
+        "needs further work",
+        "need more work",
+        "waiting for spare parts",
+        "waiting for parts",
+        "temporary repair",
+        "additional visit required",
+    )
+    return any(signal in text for signal in incomplete_signals)
+
+
 @router.get("/{job_id}")
 def get_agent_tracking_job(
     job_id: int,
@@ -256,8 +284,6 @@ def get_agent_tracking_job(
         events.append(_event(job.work_started_at, "Technician", "Work started", "Technician started the service work.", "work"))
     if job.completed_at:
         events.append(_event(job.completed_at, "Technician", "Service completed", "Technician marked the service as complete.", "work"))
-    if job.closed_at:
-        events.append(_event(job.closed_at, "Closure Agent", "Job closed", job.closure_reason or "The job was closed.", "closure", input={"status": tracked["status"], "work_report": getattr(job, "work_report", None), "completed_at": _utc_iso(job.completed_at)}, output={"status": tracked["status"], "closure_reason": job.closure_reason, "closed_at": _utc_iso(job.closed_at)}))
     if job.cancelled_at:
         events.append(_event(job.cancelled_at, "Dispatcher Agent", "Job cancelled", job.cancellation_reason or "The job was cancelled.", "dispatch", input={"job_id": job.id, "attempt_count": getattr(job, "attempt_count", None)}, output={"status": tracked["status"], "cancellation_reason": job.cancellation_reason, "cancelled_at": _utc_iso(job.cancelled_at)}))
 
@@ -477,6 +503,86 @@ def get_agent_tracking_job(
             ))
 
     events.sort(key=lambda item: item["timestamp"] or "")
+
+    if tracked["status"] in {"COMPLETED", "CLOSED"} or (
+        job.completed_at is not None
+        and tracked["status"] not in {"CANCELLED", "CANCELED"}
+    ):
+        closure = (
+            db.query(JobClosure)
+            .filter(
+                JobClosure.job_id == job.id,
+                JobClosure.tenant_id == str(job.tenant_id),
+            )
+            .order_by(JobClosure.completed_at.desc(), JobClosure.id.desc())
+            .first()
+        )
+        work_report = closure.work_report if closure and isinstance(closure.work_report, dict) else {}
+        closure_decision = work_report.get("closure_agent")
+        if not isinstance(closure_decision, dict):
+            closure_decision = {}
+        follow_up_reason = str(closure_decision.get("follow_up_reason") or "").strip()
+        work_incomplete = _work_is_incomplete(
+            closure.work_summary if closure else None,
+            work_report.get("summary"),
+            closure_decision.get("work_summary"),
+            follow_up_reason,
+        )
+        checklist_data = closure.completion_checklist if closure else None
+        checklist_items = checklist_data.get("items", []) if isinstance(checklist_data, dict) else []
+        checklist_items = [item for item in checklist_items if isinstance(item, dict)]
+        required_items = [item for item in checklist_items if item.get("required") is True]
+        if work_incomplete:
+            follow_up_item = {
+                "id": "closure-follow-up",
+                "label": follow_up_reason or "Complete the unfinished work.",
+                "required": True,
+                "status": "REQUIRED",
+            }
+            checklist_items.append(follow_up_item)
+            required_items.append(follow_up_item)
+        requirements_met = not work_incomplete and all(
+            str(item.get("status", "")).upper() == "COMPLETED"
+            for item in required_items
+        )
+        if work_incomplete:
+            closure_detail = (
+                f"Work is unfinished. Required follow-up: {follow_up_reason}"
+                if follow_up_reason
+                else "Work is unfinished and must be completed before closure."
+            )
+        elif required_items:
+            closure_detail = (
+                "All required completion checklist items were completed."
+                if requirements_met
+                else "Some required completion checklist items need attention."
+            )
+        else:
+            closure_detail = "No additional required checklist items were recorded for this job."
+
+        events.append(_event(
+            closure.completed_at if closure else job.completed_at,
+            "Closure Agent",
+            "Closure requirements check",
+            closure_detail,
+            "closure",
+            delivery_status="passed" if requirements_met else "review",
+            input={
+                "completion_checklist": checklist_items,
+                "required_checklist_item_count": len(required_items),
+                "after_image_count": len(closure.after_images or []) if closure else 0,
+                "work_summary": closure.work_summary if closure else None,
+            },
+            output={
+                "requirements_met": requirements_met,
+                "work_incomplete": work_incomplete,
+                "checklist_recorded": checklist_data is not None,
+                "required_checklist_items": required_items,
+                "closure_agent": closure_decision or None,
+                "closure_reason": job.closure_reason,
+                "closed_at": _utc_iso(job.closed_at),
+            },
+        ))
     return {
         **tracked,
         "customer_name": job.customer_name,

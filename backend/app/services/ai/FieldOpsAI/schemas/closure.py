@@ -56,8 +56,8 @@ class ClosureContext(BaseModel):
         description="Parts replaced or installed."
     )
 
-    duration_minutes: int = Field(
-        ...,
+    duration_minutes: Optional[int] = Field(
+        default=None,
         ge=0,
         description="Work duration in minutes."
     )
