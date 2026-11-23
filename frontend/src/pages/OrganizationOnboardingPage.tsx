@@ -21,11 +21,17 @@ import logo from "../assets/logo.png";
 type Step = "details" | "otp" | "password" | "success";
 
 interface OrganizationOnboardingPageProps {
-  onBackToLogin: () => void;
+  onBackToLogin?: () => void;
+  isHeadPortal?: boolean;
+  embedded?: boolean;
+  onSuccessHead?: () => void;
 }
 
 export default function OrganizationOnboardingPage({
   onBackToLogin,
+  isHeadPortal = false,
+  embedded = false,
+  onSuccessHead,
 }: OrganizationOnboardingPageProps) {
   const authenticateWithTokens = useAuthStore(
     (state) => state.authenticateWithTokens,
@@ -54,6 +60,22 @@ export default function OrganizationOnboardingPage({
   const [error, setError] = useState("");
 
   const clearError = () => setError("");
+
+  const resetForm = () => {
+    clearError();
+    setStep("details");
+    setOrganizationName("");
+    setFirstName("");
+    setLastName("");
+    setEmail("");
+    setAddress("");
+    setSiteLatitude(null);
+    setSiteLongitude(null);
+    setOtp("");
+    setPassword("");
+    setConfirmPassword("");
+    setOnboardingId("");
+  };
 
   const startOnboarding = async () => {
     clearError();
@@ -168,9 +190,12 @@ export default function OrganizationOnboardingPage({
         confirm_password: confirmPassword,
       });
 
-      const { access_token, refresh_token, user } = response.data;
-
-      authenticateWithTokens(access_token, refresh_token, user);
+      if (isHeadPortal) {
+        setStep("success");
+      } else {
+        const { access_token, refresh_token, user } = response.data;
+        authenticateWithTokens(access_token, refresh_token, user);
+      }
     } catch (err: any) {
       const detail = err.response?.data?.detail;
 
@@ -201,18 +226,20 @@ export default function OrganizationOnboardingPage({
   };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.background} />
+    <div style={embedded ? styles.embeddedPage : styles.page}>
+      {!embedded && <div style={styles.background} />}
 
-      <div style={styles.card}>
-        <button
-          type="button"
-          onClick={onBackToLogin}
-          aria-label="Back to login"
-          style={styles.closeButton}
-        >
-          <X size={20} />
-        </button>
+      <div style={embedded ? styles.embeddedCard : styles.card}>
+        {onBackToLogin && (
+          <button
+            type="button"
+            onClick={onBackToLogin}
+            aria-label={isHeadPortal ? "Close wizard" : "Back to login"}
+            style={styles.closeButton}
+          >
+            <X size={20} />
+          </button>
+        )}
 
       <div style={styles.header}>
           <img
@@ -648,8 +675,9 @@ export default function OrganizationOnboardingPage({
             <h2 style={styles.sectionTitle}>Organization Created!</h2>
 
             <p style={styles.description}>
-              Your organization and Super Admin account have been created
-              successfully.
+              {isHeadPortal
+                ? "The partner organization and its Super Admin account have been created successfully."
+                : "Your organization and Super Admin account have been created successfully."}
             </p>
 
             <div style={styles.successBox}>
@@ -662,16 +690,46 @@ export default function OrganizationOnboardingPage({
               <span>{email}</span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                window.location.href = "/";
-              }}
-              style={styles.primaryButton}
-            >
-              Go to Login
-              <ArrowRight size={18} />
-            </button>
+            {isHeadPortal ? (
+              <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "16px" }}>
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  style={{
+                    ...styles.primaryButton,
+                    flex: 1,
+                    background: "linear-gradient(135deg, #10B981, #059669)",
+                  }}
+                >
+                  Create Another
+                </button>
+                {onSuccessHead && (
+                  <button
+                    type="button"
+                    onClick={onSuccessHead}
+                    style={{
+                      ...styles.primaryButton,
+                      flex: 1,
+                      background: "linear-gradient(135deg, #2563EB, #1D4ED8)",
+                    }}
+                  >
+                    View Organizations
+                    <ArrowRight size={18} />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/";
+                }}
+                style={styles.primaryButton}
+              >
+                Go to Login
+                <ArrowRight size={18} />
+              </button>
+            )}
           </div>
         )}
 
@@ -720,6 +778,33 @@ function StepIndicator({
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  embeddedPage: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "transparent",
+    fontFamily: "'Inter', sans-serif",
+    padding: "0",
+    position: "relative",
+    boxSizing: "border-box",
+  },
+
+  embeddedCard: {
+    width: "100%",
+    maxWidth: "580px",
+    background: "rgba(15,35,23,.95)",
+    backdropFilter: "blur(20px)",
+    border: "1px solid rgba(34,197,94,.2)",
+    borderRadius: "20px",
+    padding: "36px 32px",
+    boxShadow: "0 10px 30px rgba(0,0,0,.15)",
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    boxSizing: "border-box",
+  },
+
   page: {
     minHeight: "100vh",
     display: "flex",
